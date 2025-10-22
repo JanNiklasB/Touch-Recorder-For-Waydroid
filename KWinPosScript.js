@@ -1,0 +1,1 @@
+console.error("Position: _" + workspace.cursorPos.x + "_" + workspace.cursorPos.y + "_");
