@@ -1,5 +1,7 @@
 import PyQt6.QtWidgets as pyqt
-from PyQt6.QtCore import Qt as qtcore
+import PyQt6.QtCore as qtcore
+import PyQt6.QtGui as qtgui
+from time import perf_counter
 import os, sys
 import configparser
 import subprocess
@@ -47,6 +49,15 @@ class MainWindow(pyqt.QMainWindow):
 		super().__init__()
 		self.config = Config()
 
+		# setup timer and timer globals:
+		self._timer = qtcore.QTimer(self)
+		self._timer.setInterval(100)
+		self._timer.timeout.connect(self._updateTimer)
+		self._timerRunning = False
+		self._timerStart = 0
+		self._timerElapsed = 0
+
+		# set main Window options
 		self.setWindowTitle("Waydroid Touch Macro Recorder")
 		self.setMinimumSize(700, 500)
 
@@ -57,6 +68,25 @@ class MainWindow(pyqt.QMainWindow):
 		# Create HBox inside Window
 		layout = pyqt.QHBoxLayout()
 		mainWidget.setLayout(layout)
+
+		
+
+		# create status bar
+		statusBar = pyqt.QStatusBar()
+		self.setStatusBar(statusBar)
+
+		# set status info text
+		self.statusInfoLabel = pyqt.QLabel("Idling")
+		# set status light
+		self.statusLight = pyqt.QLabel()
+		self.statusLight.setFixedSize(14, 14)
+		self.statusLight.setPixmap(self._getStatusPixmap("gray"))
+		# set timer label
+		self.timerLabel = pyqt.QLabel("00:00.0")
+
+		statusBar.addWidget(self.statusInfoLabel)
+		statusBar.addPermanentWidget(self.statusLight)
+		statusBar.addPermanentWidget(self.timerLabel)
 
 
 
@@ -94,7 +124,7 @@ class MainWindow(pyqt.QMainWindow):
 		# Create right panel for list of buttons
 		rightPanel = pyqt.QWidget()
 		rightLayout = pyqt.QVBoxLayout(rightPanel)
-		rightLayout.setAlignment(qtcore.AlignmentFlag.AlignTop)
+		rightLayout.setAlignment(qtcore.Qt.AlignmentFlag.AlignTop)
 
 		# Add buttons:
 		# Add Pick Window
@@ -102,7 +132,6 @@ class MainWindow(pyqt.QMainWindow):
 		QueryLayout = pyqt.QHBoxLayout(QueryPanel)
 
 		queryButton = pyqt.QPushButton("Pick Window")
-		self.uuid = ""
 		self.query = {}
 		queryButton.clicked.connect(self.queryWindow)
 		QueryLayout.addWidget(queryButton)
@@ -129,12 +158,26 @@ class MainWindow(pyqt.QMainWindow):
 			self.DevicesInfo.setText(self.config.get("devices"))
 		DevicesLayout.addWidget(self.DevicesInfo)
 
+		# Record Macro:
+		# RecordPanel = pyqt.QWidget()
+		# RecordLayout = pyqt.QHBoxLayout(RecordPanel)
+
+		# StartRecordButton = pyqt.QPushButton("Record")
+		# StartRecordButton.clicked.connect(self.TODO)
+		# RecordLayout.addWidget(StartRecordButton)
+
+		# StopRecordButton = pyqt.QPushButton("Stop")
+		# StopRecordButton.clicked.connect(self.TODO)
+		# RecordLayout.addWidget(StopRecordButton)
+
+		# some form of statusbar
+
 
 		rightLayout.addWidget(QueryPanel)
 		rightLayout.addWidget(DevicesPanel)
+		rightLayout.addWidget(pyqt.QLabel("Recording:"))
 
 		# TODO
-		# Choose Device Field
 		# Record Macro Button (Check if other options are set) (threaded)
 		# -> start recording directly
 		# -> stop recording with button
@@ -175,8 +218,7 @@ class MainWindow(pyqt.QMainWindow):
 			return ""
 
 	def queryWindow(self):
-		self.query = Listener.extractWindowQuery(self.uuid)
-		self.uuid = self.query["uuid"]
+		self.query = Listener.extractWindowQuery()
 		self.queryInfo.setText(self.query["desktopFile"])
 
 	def chooseDevices(self):
@@ -236,12 +278,67 @@ class MainWindow(pyqt.QMainWindow):
 			self.config.set("devices", str(devices))
 			self.DevicesInfo.setText(str(devices))
 
+	def recordMacro(self):
+		devices = eval(self.config.get("devices"))
+		# inputs = []
+		# Listener.EventListener(devices, inputs, self.query)
+
 	def warningMessage(self, message):
 		errorWin = pyqt.QMessageBox()
 		errorWin.setIcon(pyqt.QMessageBox.Icon.Critical)
 		errorWin.setWindowTitle("Warning Message")
 		errorWin.setText(message)
 		errorWin.exec()
+
+	def _getStatusPixmap(self, color, size = 14):
+		pixmap = qtgui.QPixmap(size, size)
+		pixmap.fill(qtgui.QColor(0, 0, 0, 0))
+		
+		painter = qtgui.QPainter(pixmap)
+		painter.setRenderHint(qtgui.QPainter.RenderHint.Antialiasing)
+		painter.setBrush(qtgui.QColor(color))
+		painter.setPen(qtgui.QColor(color))
+		
+		painter.drawEllipse(1, 1, size-2, size-2)
+		painter.end()
+		return pixmap
+	
+	def _updateTimer(self):
+		if not self._timerRunning:
+			return
+		
+		self._timerElapsed = perf_counter() - self._timerStart
+		secs = int(self._timerElapsed)
+		tenthsecs = int((self._timerElapsed-secs)*10)
+		minutes = secs//60
+		secs = secs%60
+		self.timerLabel.setText(f"{minutes:02d}:{secs:02d}.{tenthsecs}")
+
+	def setStatus(self, state:str):
+		"""Available states = ('idle', 'recording', 'playing')"""
+
+		status = state.lower()
+		if status == "recording":
+			self.statusInfoLabel.setText("Recording...")
+			self.statusLight.setPixmap(self._getStatusPixmap("red"))
+			self._timerStart = perf_counter()
+			self._timerRunning = True
+			self._timer.start()
+		elif status == "playing":
+			self.statusInfoLabel.setText("Playing...")
+			self.statusLight.setPixmap(self._getStatusPixmap("green"))
+			self._timerStart = perf_counter()
+			self._timerRunning = True
+			self._timer.start()
+		elif status == "idling":
+			self.statusInfoLabel.setText("Idling")
+			self.statusLight.setPixmap(self._getStatusPixmap("gray"))
+			self._timerRunning = False
+			self._timer.stop()
+			self._timerElapsed = 0
+			self.timerLabel.setText("00:00.0")
+		else:
+			raise KeyError(f"state not found {state}")
 
 
 
