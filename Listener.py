@@ -4,6 +4,7 @@ import os, sys
 import subprocess
 import libevdev
 import configparser
+import threading
 
 CONFIGFILE = "WaydroidTouchRecorder.ini"
 
@@ -27,12 +28,11 @@ def extractWindowQuery(uuid = "") -> dict:
 	if uuid:
 		WindowQueryCommandOutput = subprocess.run(f"qdbus org.kde.KWin /KWin getWindowInfo {uuid}", shell=True, capture_output=True)
 	else:
-		print("Select a window with the cursor, if you close the Window you need to restart this tool!")
+		# print("Select a window with the cursor, if you close the Window you need to restart this tool!")
 		WindowQueryCommandOutput = subprocess.run("qdbus org.kde.KWin /KWin queryWindowInfo", shell=True, capture_output=True)
 
-
 	WindowQuery = {}
-	for query_entry in str(WindowQueryCommandOutput.stdout).replace("b'", "").split("\\n"):
+	for query_entry in WindowQueryCommandOutput.stdout.decode().split("\n"):
 		entries = query_entry.split(": ")
 		if len(entries)<2:
 			continue
@@ -57,7 +57,7 @@ def saveInputs(File, Inputs):
 
 def getpos()->tuple:
 	posInput = subprocess.run("findCursor.sh", shell=True, capture_output=True)
-	posInput = str(posInput.stdout).split("_")
+	posInput = posInput.stdout.decode().split("_")
 	return (int(posInput[1]), int(posInput[2]))
 
 def on_BTN_LEFT(x, y, time, container, query, value):
@@ -73,10 +73,12 @@ def on_BTN_LEFT(x, y, time, container, query, value):
 				"type" : "Touch"
 			})
 
-def on_Movement(x, y, time, container):
+def on_Movement(x, y, time, container, query):
+	X = int(float(query["width"]))
+	Y = int(float(query["height"]))
 	container.append({
-		"x" : x,
-		"y" : y,
+		"x" : min(x,X) if (x>0) else 0,
+		"y" : min(y,Y) if (y>0) else 0,
 		"time" : perf_counter()-time,
 		"value" : 0,
 		"type" : "Movement"
@@ -114,35 +116,50 @@ def on_event(event:libevdev.InputEvent, time, container, query):
 	elif event.matches(libevdev.EV_KEY.KEY_ESC):
 		on_ESC(time, container, event.value)
 
-def EventListener(Devices, container, query):
-	start = perf_counter()
+class EventListener:
+	def __init__(self, Devices, query):
+		self.query = query
+		self.Devices = []
+		for i in Devices:
+			self.Devices.append(libevdev.Device(open(f"/dev/input/event{i}")))
 
-	StopSignal = False
-	def signal_handler(sig, frame):
-		global StopSignal
-		StopSignal = True
+		self.container = []
+		self.StopSignal = False
+		self.Thread = threading.Thread(target=self.threadFunc)
 
-	old_handler = signal.signal(signal.SIGINT, signal_handler)
-	print("Press CTRL + C to stop recording, do not resize window while recording!")
-	query = extractWindowQuery(query["uuid"])
+	def signal_handler(self, sig, frame):
+		self.StopSignal = True
 
-	while not StopSignal:
-		try:
-			for device in Devices:
-				for event in device.events():
-					if event.matches(libevdev.EV_REL) or event.matches(libevdev.EV_KEY):
-						on_event(event, start, container, query)
-		except InterruptedError:
-			print("Recording Stopped!")
-			break
-		except:
-			# every other case just dopps some inputs,
-			# but that is to be expected and should not be Problem
-			# (Since we are doing a while loop the inputs are reread anyways)
-			# print(f"One Event dropped with error")
-			pass
+	# runs until disrupted
+	def run(self):
 
-	signal.signal(signal.SIGINT, old_handler)
+		old_handler = signal.signal(signal.SIGINT, self.signal_handler)
+		print("Press CTRL + C to stop recording, do not resize window while recording!")
+		self.Thread.start()
+
+		self.Thread.join()
+		signal.signal(signal.SIGINT, old_handler)
+		self.StopSignal = False
+
+	def getData(self):
+		return self.container
+
+	def threadFunc(self):
+		start = perf_counter()
+		self.query = extractWindowQuery(self.query["uuid"])
+
+		while not self.StopSignal:
+			try:
+				for device in Devices:
+					for event in device.events():
+						if event.matches(libevdev.EV_REL) or event.matches(libevdev.EV_KEY):
+							on_event(event, start, self.container, self.query)
+			except InterruptedError:
+				print("Recording Stopped!")
+				break
+			except:
+				pass
+
 
 if __name__ == "__main__":
 	config = configparser.ConfigParser()
@@ -185,8 +202,9 @@ if __name__ == "__main__":
 	for i in Devices:
 		LibevdevDevices.append(libevdev.Device(open(f"/dev/input/event{i}")))
 
-	Inputs = []
-	EventListener(LibevdevDevices, Inputs, WindowQuery)
+	Listener = EventListener(LibevdevDevices, WindowQuery)
+	Listener.run()
+	Inputs = Listener.getData()
 
 	saveInputs(RecordingFile, Inputs)
 
