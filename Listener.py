@@ -60,62 +60,6 @@ def getpos()->tuple:
 	posInput = posInput.stdout.decode().split("_")
 	return (int(posInput[1]), int(posInput[2]))
 
-def on_BTN_LEFT(x, y, time, container, query, value):
-	X = int(float(query["x"]))
-	Y = int(float(query["y"]))
-	if x>=X and x<=(X+int(float(query["width"]))):
-		if y>=Y and y<=(Y+int(float(query["height"]))):
-			container.append({
-				"x" : x-X,
-				"y" : y-Y,
-				"time" : perf_counter()-time,
-				"value" : value,
-				"type" : "Touch"
-			})
-
-def on_Movement(x, y, time, container, query):
-	X = int(float(query["width"]))
-	Y = int(float(query["height"]))
-	container.append({
-		"x" : min(x,X) if (x>0) else 0,
-		"y" : min(y,Y) if (y>0) else 0,
-		"time" : perf_counter()-time,
-		"value" : 0,
-		"type" : "Movement"
-	})
-
-def on_ESC(time, container, value):
-	if(value==1):
-		container.append({
-			"x" : 0,
-			"y" : 0,
-			"time" : perf_counter()-time,
-			"value" : 1,
-			"type" : "ESC"
-		})
-
-ListenOnEV_REL = False
-def on_event(event:libevdev.InputEvent, time, container, query):
-	global ListenOnEV_REL
-
-	if event.matches(libevdev.EV_KEY.BTN_LEFT):
-		pos = getpos()
-		on_BTN_LEFT(*pos, time, container, query, event.value)
-		if(event.value==1):
-			ListenOnEV_REL = True
-		else:
-			ListenOnEV_REL = False
-		
-	elif event.matches(libevdev.EV_REL.REL_X) and ListenOnEV_REL:
-		pos = (container[-1]["x"]+event.value, container[-1]["y"])
-		on_Movement(*pos, time, container)
-	elif event.matches(libevdev.EV_REL.REL_Y) and ListenOnEV_REL:
-		pos = (container[-1]["x"], container[-1]["y"]+event.value)
-		on_Movement(*pos, time, container)
-
-	elif event.matches(libevdev.EV_KEY.KEY_ESC):
-		on_ESC(time, container, event.value)
-
 class EventListener:
 	def __init__(self, Devices, query):
 		self.query = query
@@ -124,11 +68,21 @@ class EventListener:
 			self.Devices.append(libevdev.Device(open(f"/dev/input/event{i}")))
 
 		self.container = []
-		self.StopSignal = False
+		self.StopSignal = True
+		self.ListenOnEV_REL = False
 		self.Thread = threading.Thread(target=self.threadFunc)
 
 	def signal_handler(self, sig, frame):
 		self.StopSignal = True
+
+	def start(self):
+		self.StopSignal = False
+		self.Thread.start()
+
+	def stop(self):
+		self.StopSignal = True
+		# wait on thread to finish
+		self.Thread.join()
 
 	# runs until disrupted
 	def run(self):
@@ -150,15 +104,72 @@ class EventListener:
 
 		while not self.StopSignal:
 			try:
-				for device in Devices:
+				for device in self.Devices:
 					for event in device.events():
+						if self.StopSignal:
+							return
 						if event.matches(libevdev.EV_REL) or event.matches(libevdev.EV_KEY):
-							on_event(event, start, self.container, self.query)
+							self.on_event(event, start)
 			except InterruptedError:
 				print("Recording Stopped!")
 				break
-			except:
-				pass
+			except Exception as e:
+				print(f"Warning: An exception was encountered in EventListener.threadFunc: {str(e)}")
+
+	def on_event(self, event:libevdev.InputEvent, time):
+		if event.matches(libevdev.EV_KEY.BTN_LEFT):
+			pos = getpos()
+			self.on_BTN_LEFT(*pos, time, event.value)
+			if(event.value==1):
+				self.ListenOnEV_REL = True
+			else:
+				self.ListenOnEV_REL = False
+
+		elif event.matches(libevdev.EV_REL.REL_X) and self.ListenOnEV_REL:
+			pos = (self.container[-1]["x"]+event.value, self.container[-1]["y"])
+			self.on_Movement(*pos, time)
+
+		elif event.matches(libevdev.EV_REL.REL_Y) and self.ListenOnEV_REL:
+			pos = (self.container[-1]["x"], self.container[-1]["y"]+event.value)
+			self.on_Movement(*pos, time)
+
+		elif event.matches(libevdev.EV_KEY.KEY_ESC):
+			self.on_ESC(time, event.value)
+
+	def on_BTN_LEFT(self, x, y, time, value):
+		X = int(float(self.query["x"]))
+		Y = int(float(self.query["y"]))
+		if x>=X and x<=(X+int(float(self.query["width"]))):
+			if y>=Y and y<=(Y+int(float(self.query["height"]))):
+				self.container.append({
+					"x" : x-X,
+					"y" : y-Y,
+					"time" : perf_counter()-time,
+					"value" : value,
+					"type" : "Touch"
+				})
+				# print(f"Click at {x}, {y}")
+
+	def on_Movement(self, x, y, time):
+		X = int(float(self.query["width"]))
+		Y = int(float(self.query["height"]))
+		self.container.append({
+			"x" : min(x,X) if (x>0) else 0,
+			"y" : min(y,Y) if (y>0) else 0,
+			"time" : perf_counter()-time,
+			"value" : 0,
+			"type" : "Movement"
+		})
+
+	def on_ESC(self,time, value):
+		if(value==1):
+			self.container.append({
+				"x" : 0,
+				"y" : 0,
+				"time" : perf_counter()-time,
+				"value" : 1,
+				"type" : "ESC"
+			})
 
 
 if __name__ == "__main__":

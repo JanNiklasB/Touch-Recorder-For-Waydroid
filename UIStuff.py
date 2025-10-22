@@ -76,6 +76,7 @@ class MainWindow(pyqt.QMainWindow):
 		self.setStatusBar(statusBar)
 
 		# set status info text
+		statusInfoLabelPrefix = pyqt.QLabel("Status: ")
 		self.statusInfoLabel = pyqt.QLabel("Idling")
 		# set status light
 		self.statusLight = pyqt.QLabel()
@@ -84,6 +85,7 @@ class MainWindow(pyqt.QMainWindow):
 		# set timer label
 		self.timerLabel = pyqt.QLabel("00:00.0")
 
+		statusBar.addWidget(statusInfoLabelPrefix)
 		statusBar.addWidget(self.statusInfoLabel)
 		statusBar.addPermanentWidget(self.statusLight)
 		statusBar.addPermanentWidget(self.timerLabel)
@@ -113,11 +115,24 @@ class MainWindow(pyqt.QMainWindow):
 		# Add Available Macros (currently only this Dir)
 		self.macroList = pyqt.QListWidget()
 		self.refresh_macro_list()
-		
+
+		FileOperationsPanel = pyqt.QWidget()
+		FileOperationsLayout = pyqt.QHBoxLayout(FileOperationsPanel)
+
+		OpenMacroFileButton = pyqt.QPushButton("Open")
+		OpenMacroFileButton.clicked.connect(self.openSelectedMacro)
+		FileOperationsLayout.addWidget(OpenMacroFileButton)
+
+		DeleteMacroFileButton = pyqt.QPushButton("Delete")
+		DeleteMacroFileButton.clicked.connect(self.deleteSelectedMacro)
+		FileOperationsLayout.addWidget(DeleteMacroFileButton)
+
+
 		leftLayout.addWidget(pyqt.QLabel("Choose Macro Folder:"))
 		leftLayout.addWidget(pathPanel)
 		leftLayout.addWidget(pyqt.QLabel("Choose a Macro:"))
 		leftLayout.addWidget(self.macroList)
+		leftLayout.addWidget(FileOperationsPanel)
 
 
 
@@ -159,33 +174,38 @@ class MainWindow(pyqt.QMainWindow):
 		DevicesLayout.addWidget(self.DevicesInfo)
 
 		# Record Macro:
-		# RecordPanel = pyqt.QWidget()
-		# RecordLayout = pyqt.QHBoxLayout(RecordPanel)
+		RecordPanel = pyqt.QWidget()
+		RecordLayout = pyqt.QHBoxLayout(RecordPanel)
+		# globals:
+		self._RecordingIsRunning = False
+		self.Recorder = Listener.EventListener([], self.query)
 
-		# StartRecordButton = pyqt.QPushButton("Record")
-		# StartRecordButton.clicked.connect(self.TODO)
-		# RecordLayout.addWidget(StartRecordButton)
+		StartRecordButton = pyqt.QPushButton("Record")
+		StartRecordButton.clicked.connect(self.startRecording)
+		RecordLayout.addWidget(StartRecordButton)
 
-		# StopRecordButton = pyqt.QPushButton("Stop")
-		# StopRecordButton.clicked.connect(self.TODO)
-		# RecordLayout.addWidget(StopRecordButton)
+		StopRecordButton = pyqt.QPushButton("Stop")
+		StopRecordButton.clicked.connect(self.stopRecording)
+		RecordLayout.addWidget(StopRecordButton)
 
-		# some form of statusbar
+
+		self._ReplayIsRunning = False
+		
 
 
 		rightLayout.addWidget(QueryPanel)
 		rightLayout.addWidget(DevicesPanel)
 		rightLayout.addWidget(pyqt.QLabel("Recording:"))
+		rightLayout.addWidget(RecordPanel)
 
 		# TODO
 		# Record Macro Button (Check if other options are set) (threaded)
 		# -> start recording directly
 		# -> stop recording with button
-		# -> make prompt for macro name after recording
 		# Play Macro Field (will probably take about half the right panel) (threaded)
 		# -> read out chosen file for macro
-		# Global:
-		# - For Record/Play Macro: Signal recording with some icon and a running timer
+		# -> implement pause button -> should set status to paused, resume with start/resume button
+		# -> implement stop button
 		
 		
 		# Add panels to global layout
@@ -207,8 +227,17 @@ class MainWindow(pyqt.QMainWindow):
 		if path=="":
 			path = "."
 		for file in os.listdir(path):
-			if file.endswith('.txt') or file.endswith('.csv'):
+			if file.endswith('.txt'):
 				self.macroList.addItem(file)
+
+	def openSelectedMacro(self):
+		if self.macroList.selectedItems():
+			subprocess.Popen(["xdg-open", self.macroPathInfo.text() + "/" + self.macroList.selectedItems()[0].text()])
+
+	def deleteSelectedMacro(self):
+		if self.macroList.selectedItems():
+			os.remove(self.macroPathInfo.text() + "/" + self.macroList.selectedItems()[0].text())
+			self.refresh_macro_list()
 
 	def checkSelection(self) -> str:
 		items = self.macroList.selectedItems()
@@ -278,14 +307,56 @@ class MainWindow(pyqt.QMainWindow):
 			self.config.set("devices", str(devices))
 			self.DevicesInfo.setText(str(devices))
 
-	def recordMacro(self):
-		devices = eval(self.config.get("devices"))
-		# inputs = []
-		# Listener.EventListener(devices, inputs, self.query)
+	def startRecording(self):
+		# do nothing if already running or playing:
+		if(self._ReplayIsRunning or self._RecordingIsRunning):
+			return
+		
+		self._RecordingIsRunning = True
+
+		# check requirements:
+		queryCheck = self._checkQuery()
+		devicesCheck = (self.config.get("devices") != "") and (self.config.get("devices") != "[]")
+		if(queryCheck or not devicesCheck):
+			WarningMessage = ""
+			if not devicesCheck:
+				WarningMessage += "You need to pick your Devices!\n"
+			
+			if queryCheck == 1:
+				WarningMessage += "You need to pick a Window!\n"
+			elif queryCheck == 2:
+				WarningMessage += "Your chosen window does not exist, pick again!"
+
+			self.warningMessage(WarningMessage)
+			return
+
+		# get fresh recorder
+		print(eval(self.config.get("devices")))
+		self.Recorder = Listener.EventListener(eval(self.config.get("devices")), self.query)
+
+		self.setStatus("recording")
+		self.Recorder.start()
+
+	def stopRecording(self):
+		# do nothing if Recorder is not running
+		if not self._RecordingIsRunning:
+			return
+
+		self.Recorder.stop()
+		self.setStatus("idling")
+		inputs = self.Recorder.getData()
+
+		filename = self._chooseMacroFilename()
+		# self.warningMessage(f"You entered {self.macroPathInfo.text() + '/' + filename}")
+		if filename:
+			Listener.saveInputs(self.macroPathInfo.text() + "/" + filename, inputs)
+			self.refresh_macro_list()
+		
+		self._RecordingIsRunning = False
 
 	def warningMessage(self, message):
 		errorWin = pyqt.QMessageBox()
-		errorWin.setIcon(pyqt.QMessageBox.Icon.Critical)
+		errorWin.setIcon(pyqt.QMessageBox.Icon.Warning)
 		errorWin.setWindowTitle("Warning Message")
 		errorWin.setText(message)
 		errorWin.exec()
@@ -340,6 +411,47 @@ class MainWindow(pyqt.QMainWindow):
 		else:
 			raise KeyError(f"state not found {state}")
 
+	def _checkQuery(self) -> int:
+		if not self.query:
+			return 1
+		
+		self.query = Listener.extractWindowQuery(self.query["uuid"])
+		if not self.query:
+			return 2
+		
+		return 0
+
+	def _chooseMacroFilename(self):
+		popup = pyqt.QDialog(self)
+		popup.setWindowTitle("Choose a Macro Filename")
+		popup.setMinimumSize(400, 150)
+
+		layout = pyqt.QVBoxLayout(popup)
+		layout.setAlignment(qtcore.Qt.AlignmentFlag.AlignCenter)
+		layout.addWidget(pyqt.QLabel("Please choose a filename for your Macro:"))
+
+		inputLayout = pyqt.QHBoxLayout()
+		filenameInput = pyqt.QLineEdit()
+		filenameInput.setPlaceholderText("Endings: None, *.txt")
+		inputLayout.addWidget(filenameInput)
+		layout.addLayout(inputLayout)
+
+		buttonBox = pyqt.QDialogButtonBox(
+			pyqt.QDialogButtonBox.StandardButton.Ok |
+			pyqt.QDialogButtonBox.StandardButton.Cancel
+		)
+
+		buttonBox.accepted.connect(popup.accept)
+		buttonBox.rejected.connect(popup.reject)
+		layout.addWidget(buttonBox)
+
+		if popup.exec() == pyqt.QDialog.DialogCode.Accepted:
+			filename = filenameInput.text()
+			if not filename.endswith('.txt') and filename:
+				filename += ".txt"
+			return filename
+		else:
+			return ""
 
 
 if __name__ == "__main__":
