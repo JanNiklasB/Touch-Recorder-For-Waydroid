@@ -5,14 +5,16 @@ from time import perf_counter
 import os, sys
 import configparser
 import subprocess
-import threading
 
 import Listener
 import Player
 
+#get current path
+from pathlib import Path
+PATH = Path(__file__).parent.resolve()
 
 # config file, can be static
-CONFIGFILE = "WaydroidTouchRecorder.ini"
+CONFIGFILE = str(PATH) + "/WaydroidTouchRecorder.ini"
 
 class Config:
 	def __init__(self):
@@ -189,14 +191,19 @@ class MainWindow(pyqt.QMainWindow):
 		StopRecordButton.clicked.connect(self.stopRecording)
 		RecordLayout.addWidget(StopRecordButton)
 
-
 		# Replay Macro
 		ReplayPanel = pyqt.QWidget()
 		ReplayLayout = pyqt.QHBoxLayout(ReplayPanel)
 		# globals
-		self._ReplayPlayer = Player.Player()
+		try:
+			self._ReplayPlayer = Player.Player(self._askForSudo())
+		except Exception as e:
+			self.ErrorMessage(str(e))
+			exit()
+
 		self._ReplayIsRunning = False
 		self._ReplayIsPaused = False
+		self._ReplayTargetTimeStr = ""
 
 		ReplayStartButton = pyqt.QPushButton("Start")
 		ReplayStartButton.clicked.connect(self.ReplayStart)
@@ -219,15 +226,16 @@ class MainWindow(pyqt.QMainWindow):
 		rightLayout.addWidget(ReplayPanel)
 
 		# TODO
-		# Record Macro Button (Check if other options are set) (threaded)
-		# -> start recording directly
-		# -> stop recording with button
-		# Play Macro Field (will probably take about half the right panel) (threaded)
-		# -> read out chosen file for macro
-		# -> implement pause button -> should set status to paused, resume with start/resume button
-		# -> implement stop button
-		
-		
+		# Play Macro Field
+		# - loop macro options:
+		# 	-> loop x times
+		# 	-> loop until abort
+		#	-> delay between runs
+		# Fuse Macros Tool -> new ui/popup which should give the followig options:
+		# - Only option for two macros, can then be called again for the new one (by user)
+		# - give two MacroLists (already implemented) and one option field
+		# - add delay between 1 and 2
+				
 		# Add panels to global layout
 		layout.addWidget(leftPanel)
 		layout.addWidget(rightPanel)
@@ -386,6 +394,13 @@ class MainWindow(pyqt.QMainWindow):
 		filename = self.macroPathInfo.text() + "/" + self.macroList.selectedItems()[0].text()
 		self._ReplayPlayer.readFile(filename)
 
+		timerElapsed = self._ReplayPlayer.Times[-1]
+		secs = int(timerElapsed)
+		tenthsecs = int((timerElapsed-secs)*10)
+		minutes = secs//60
+		secs = secs%60
+		self._ReplayTargetTimeStr =f" / {minutes:02d}:{secs:02d}.{tenthsecs}"
+
 		self._ReplayIsRunning = True
 		self.setStatus("playing")
 		self._ReplayPlayer.start()
@@ -425,6 +440,13 @@ class MainWindow(pyqt.QMainWindow):
 		errorWin.setText(message)
 		errorWin.exec()
 
+	def ErrorMessage(self, message):
+		errorWin = pyqt.QMessageBox()
+		errorWin.setIcon(pyqt.QMessageBox.Icon.Critical)
+		errorWin.setWindowTitle("Error Message")
+		errorWin.setText(message)
+		errorWin.exec()
+
 	def _getStatusPixmap(self, color, size = 14):
 		pixmap = qtgui.QPixmap(size, size)
 		pixmap.fill(qtgui.QColor(0, 0, 0, 0))
@@ -452,11 +474,12 @@ class MainWindow(pyqt.QMainWindow):
 		tenthsecs = int((self._timerElapsed-secs)*10)
 		minutes = secs//60
 		secs = secs%60
-		self.timerLabel.setText(f"{minutes:02d}:{secs:02d}.{tenthsecs}")
+		self.timerLabel.setText(f"{minutes:02d}:{secs:02d}.{tenthsecs}{self._ReplayTargetTimeStr}")
 
 		if self._ReplayIsRunning:
 			if not self._ReplayIsAlive():
 				self.ReplayStop()
+		
 
 	def setStatus(self, state:str):
 		"""
@@ -494,6 +517,7 @@ class MainWindow(pyqt.QMainWindow):
 		elif status == "idling" or status == "idle":
 			self.statusInfoLabel.setText("Idling")
 			self.statusLight.setPixmap(self._getStatusPixmap("gray"))
+			self._ReplayTargetTimeStr = ""
 			self._timerRunning = False
 			self._timer.stop()
 			self._timerElapsed = 0
@@ -540,6 +564,38 @@ class MainWindow(pyqt.QMainWindow):
 			if not filename.endswith('.txt') and filename:
 				filename += ".txt"
 			return filename
+		else:
+			return ""
+		
+	def _askForSudo(self):
+		popup = pyqt.QDialog(self)
+		popup.setWindowTitle("Password Prompt")
+		popup.setMinimumSize(400, 150)
+
+		layout = pyqt.QVBoxLayout(popup)
+		layout.setAlignment(qtcore.Qt.AlignmentFlag.AlignCenter)
+		layout.addWidget(pyqt.QLabel("This tool needs sudo to start a waydroid shell.\nLeave empty or cancel to use adb shell instead:"))
+
+		inputLayout = pyqt.QHBoxLayout()
+		
+		PasswordInput = pyqt.QLineEdit()
+		PasswordInput.setEchoMode(pyqt.QLineEdit.EchoMode.Password)
+		PasswordInput.setPlaceholderText("Enter Password")
+		inputLayout.addWidget(PasswordInput)
+		
+		layout.addLayout(inputLayout)
+
+		buttonBox = pyqt.QDialogButtonBox(
+			pyqt.QDialogButtonBox.StandardButton.Ok |
+			pyqt.QDialogButtonBox.StandardButton.Cancel
+		)
+
+		buttonBox.accepted.connect(popup.accept)
+		buttonBox.rejected.connect(popup.reject)
+		layout.addWidget(buttonBox)
+
+		if popup.exec() == pyqt.QDialog.DialogCode.Accepted:
+			return PasswordInput.text()
 		else:
 			return ""
 

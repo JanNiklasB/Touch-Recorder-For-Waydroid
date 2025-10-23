@@ -3,14 +3,47 @@ from time import perf_counter, sleep
 import sys, os
 import threading
 
+def testSudo(pwd=""):
+	args = "sudo -S echo OK".split()
+	kwargs = dict(stdout=subprocess.PIPE,
+				encoding="ascii")
+	if pwd:
+		kwargs.update(input=pwd)
+	cmd = subprocess.run(args, **kwargs)
+	return ("OK" in cmd.stdout)
+
 class Player:
-	def __init__(self):
+	def __init__(self, pswd=""):
 		self.Times = []
 		self.Commands = []
 		self.threads = []
 		self.starttime = 0
 		self.paused = False
 		self.stopped = True
+
+		if pswd=="" and os.geteuid()!=0:
+			# connect to adb shell if no password is given (might cause problems along the line)
+			self.waydroidShell = subprocess.Popen(
+				['adb', 'shell'], 
+				stderr=subprocess.PIPE, 
+				stdout=subprocess.PIPE, 
+				stdin=subprocess.PIPE,
+				text=True,
+				encoding="utf-8",
+				bufsize=1
+			)
+		elif testSudo(pswd):
+			self.waydroidShell = subprocess.Popen(
+				['sudo', '-S', 'waydroid', 'shell'], 
+				stderr=subprocess.PIPE, 
+				stdout=subprocess.PIPE, 
+				stdin=subprocess.PIPE,
+				text=True,
+				encoding="utf-8",
+				bufsize=1
+			)
+		else:
+			raise Exception("sudo password was wrong!!!\nYou can enter no password to use 'adb shell' instead of 'sudo waydroid shell'")
 
 	def readFile(self, filename):
 		self.Times = []
@@ -23,6 +56,11 @@ class Player:
 				self.Times.append(float(Time))
 				self.Commands.append(Command[:-1])
 
+	def _send_cmd(self, cmd):
+		if self.waydroidShell.stdin is None:
+			raise Exception("Shell is Closed!")
+		self.waydroidShell.stdin.write(cmd + "\n")
+		self.waydroidShell.stdin.flush()
 
 	def singleReplay(self, Time, Command):
 		# wait for next command:
@@ -31,9 +69,8 @@ class Player:
 
 		if self.stopped:
 			return
-
-		# execute command
-		os.system(f"adb shell input {Command}")
+		
+		self._send_cmd(f"input {Command}")
 
 	def allReplays(self):
 		for Time, Command in zip(self.Times, self.Commands):
@@ -44,10 +81,7 @@ class Player:
 			if self.stopped:
 				return
 
-			# execute command
-			print(Command)
-			os.system(f"sudo waydroid shell input {Command}")
-			# subprocess.call(["sudo", "waydroid", "shell", "input", f"{Command}"])
+			self._send_cmd(f"input {Command}")
 
 	def replayMacro(self):
 		self.stopped = False
@@ -75,12 +109,14 @@ class Player:
 
 	def start(self):
 		self.stopped = False
+		self.paused = True
 
 		# first setup all threads
 		self.threads = []
-		# for Time, Command in zip(self.Times, self.Commands):
-		# 	self.threads.append(threading.Thread(target=self.singleReplay, args=[Time, Command]))
-		self.threads.append(threading.Thread(target=self.allReplays))
+		for Time, Command in zip(self.Times, self.Commands):
+			self.threads.append(threading.Thread(target=self.singleReplay, args=[Time, Command]))
+		# ordered execution as an alternative, but this might cause delay due to overhead
+		# self.threads.append(threading.Thread(target=self.allReplays))
 
 		for thread in self.threads:
 			thread.start()
@@ -104,12 +140,3 @@ class Player:
 
 		for thread in self.threads:
 			thread.join()
-
-
-
-if __name__ == "__main__":
-	filename = "/home/jnb/Documents/PythonMacro/test.txt"
-
-	player = Player()
-	player.readFile(filename)
-	player.replayMacro()
