@@ -64,25 +64,35 @@ class EventListener:
 	def __init__(self, Devices, query):
 		self.query = query
 		self.Devices = []
+		self.Threads = []
 		for i in Devices:
-			self.Devices.append(libevdev.Device(open(f"/dev/input/event{i}")))
+			fd = open(f"/dev/input/event{i}")
+			os.set_blocking(fd.fileno(), False)  # important to not block threads, we only read, so ok
+			device = libevdev.Device(fd)
+			self.Devices.append(device)
+			self.Threads.append(threading.Thread(target=self.threadFunc, args=[device]))
 
 		self.container = []
 		self.StopSignal = True
 		self.ListenOnEV_REL = False
-		self.Thread = threading.Thread(target=self.threadFunc)
 
 	def signal_handler(self, sig, frame):
 		self.StopSignal = True
 
 	def start(self):
 		self.StopSignal = False
-		self.Thread.start()
+		for thread in self.Threads:
+			thread.start()
 
 	def stop(self):
 		self.StopSignal = True
+
 		# wait on thread to finish
-		self.Thread.join()
+		for thread in self.Threads:
+			thread.join()
+
+		for device in self.Devices:
+			device.fd.close()
 
 	# runs until disrupted
 	def run(self):
@@ -98,18 +108,17 @@ class EventListener:
 	def getData(self):
 		return self.container
 
-	def threadFunc(self):
+	def threadFunc(self, device):
 		start = perf_counter()
 		self.query = extractWindowQuery(self.query["uuid"])
 
 		while not self.StopSignal:
 			try:
-				for device in self.Devices:
-					for event in device.events():
-						if self.StopSignal:
-							return
-						if event.matches(libevdev.EV_REL) or event.matches(libevdev.EV_KEY):
-							self.on_event(event, start)
+				for event in device.events():
+					if self.StopSignal:
+						return
+					if event.matches(libevdev.EV_REL) or event.matches(libevdev.EV_KEY):
+						self.on_event(event, start)
 			except InterruptedError:
 				print("Recording Stopped!")
 				break
