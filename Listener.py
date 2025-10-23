@@ -5,6 +5,7 @@ import subprocess
 import libevdev
 import configparser
 import threading
+import select
 
 CONFIGFILE = "WaydroidTouchRecorder.ini"
 
@@ -67,7 +68,7 @@ class EventListener:
 		self.Threads = []
 		for i in Devices:
 			fd = open(f"/dev/input/event{i}")
-			os.set_blocking(fd.fileno(), False)  # important to not block threads, we only read, so ok
+			# os.set_blocking(fd.fileno(), False)  # important to not block threads, we only read, so ok
 			device = libevdev.Device(fd)
 			self.Devices.append(device)
 			self.Threads.append(threading.Thread(target=self.threadFunc, args=[device]))
@@ -111,9 +112,14 @@ class EventListener:
 	def threadFunc(self, device):
 		start = perf_counter()
 		self.query = extractWindowQuery(self.query["uuid"])
+		fd = device.fd.fileno()
 
 		while not self.StopSignal:
 			try:
+				r, _, _ = select.select([fd], [], [], 0.3)
+				if not r:
+					continue
+
 				for event in device.events():
 					if self.StopSignal:
 						return
