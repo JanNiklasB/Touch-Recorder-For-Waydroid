@@ -1,53 +1,115 @@
 import subprocess
-from time import perf_counter
-import sys
+from time import perf_counter, sleep
+import sys, os
 import threading
 
-def readFile(filename):
-	Times = []
-	Commands = []
-	with open(filename, "r") as f:
-		for i, line in enumerate(f.readlines()):
-			if i==0 or line=="":
-				continue
-			Time, Command = line.split(",")
-			Times.append(float(Time))
-			Commands.append(Command)
-	return Times, Commands
+class Player:
+	def __init__(self):
+		self.Times = []
+		self.Commands = []
+		self.threads = []
+		self.starttime = 0
+		self.paused = False
+		self.stopped = True
 
-def singleReplay(Time, Command, start):
-	# wait for next command:
-	while Time>(perf_counter()-start):
-		pass
+	def readFile(self, filename):
+		self.Times = []
+		self.Commands = []
+		with open(filename, "r") as f:
+			for i, line in enumerate(f.readlines()):
+				if i==0 or line=="":
+					continue
+				Time, Command = line.split(",")
+				self.Times.append(float(Time))
+				self.Commands.append(Command[:-1])
 
-	# execute command
-	subprocess.run(f"adb shell cmd input {Command}", shell=True)	
 
-def replayMacro(Times, Commands):
-	input("Press Enter to start Macro: ")
-	# to synchronize all container give them all one second:
-	start = perf_counter() + 1
+	def singleReplay(self, Time, Command):
+		# wait for next command:
+		while (Time>(perf_counter()-self.starttime) or self.paused) and not self.stopped:
+			sleep(0.01)
 
-	# the simples solution to timing issues is to start all command executions
-	# in seperate threads and time the commands there
-	threads = []
-	for Time, Command in zip(Times, Commands):
-		threads.append(threading.Thread(target=singleReplay, args=(Time, Command, start)))
+		if self.stopped:
+			return
 
-	# start all threads:
-	for thread in threads:
-		thread.start()
+		# execute command
+		os.system(f"adb shell input {Command}")
 
-	# wait for all threads:
-	for thread in threads:
-		thread.join()
+	def allReplays(self):
+		for Time, Command in zip(self.Times, self.Commands):
+			# wait for next command:
+			while (Time>(perf_counter()-self.starttime) or self.paused) and not self.stopped:
+				sleep(0.01)
+
+			if self.stopped:
+				return
+
+			# execute command
+			print(Command)
+			os.system(f"sudo waydroid shell input {Command}")
+			# subprocess.call(["sudo", "waydroid", "shell", "input", f"{Command}"])
+
+	def replayMacro(self):
+		self.stopped = False
+		self.paused = True
+
+		# the simples solution to timing issues is to start all command executions
+		# in seperate threads and time the commands there
+		threads = []
+		for Time, Command in zip(self.Times, self.Commands):
+			threads.append(threading.Thread(target=self.singleReplay, args=[Time, Command]))
+
+		# start all threads:
+		for thread in threads:
+			thread.start()
+
+		# now start the timer:
+		self.starttime = perf_counter()
+		self.paused = False
+
+		# wait for all threads:
+		for thread in threads:
+			thread.join()
+
+		self.stopped = True
+
+	def start(self):
+		self.stopped = False
+
+		# first setup all threads
+		self.threads = []
+		# for Time, Command in zip(self.Times, self.Commands):
+		# 	self.threads.append(threading.Thread(target=self.singleReplay, args=[Time, Command]))
+		self.threads.append(threading.Thread(target=self.allReplays))
+
+		for thread in self.threads:
+			thread.start()
+
+		# then start all threads at the same time
+		self.starttime = perf_counter()
+		self.paused = False
+
+	def pause(self):
+		self.paused = True
+		# save elapsed time
+		self.starttime = perf_counter() - self.starttime
+
+	def resume(self):
+		# correct start time with elapsed time
+		self.starttime = perf_counter() - self.starttime
+		self.paused = False
+
+	def stop(self):
+		self.stopped = True
+
+		for thread in self.threads:
+			thread.join()
+
 
 
 if __name__ == "__main__":
-	if len(sys.argv)==1:
-		filename = input("Input a Macro File: ")
-	else:
-		filename = sys.argv[1]
+	filename = "/home/jnb/Documents/PythonMacro/test.txt"
 
-	Times, Commands = readFile(filename)
-	replayMacro(Times, Commands)
+	player = Player()
+	player.readFile(filename)
+	player.replayMacro()

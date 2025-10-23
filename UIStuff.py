@@ -5,6 +5,7 @@ from time import perf_counter
 import os, sys
 import configparser
 import subprocess
+import threading
 
 import Listener
 import Player
@@ -189,14 +190,33 @@ class MainWindow(pyqt.QMainWindow):
 		RecordLayout.addWidget(StopRecordButton)
 
 
+		# Replay Macro
+		ReplayPanel = pyqt.QWidget()
+		ReplayLayout = pyqt.QHBoxLayout(ReplayPanel)
+		# globals
+		self._ReplayPlayer = Player.Player()
 		self._ReplayIsRunning = False
-		
+		self._ReplayIsPaused = False
 
+		ReplayStartButton = pyqt.QPushButton("Start")
+		ReplayStartButton.clicked.connect(self.ReplayStart)
+		ReplayLayout.addWidget(ReplayStartButton)
 
+		self.ReplayPauseButton = pyqt.QPushButton("Pause")
+		self.ReplayPauseButton.clicked.connect(self.ReplayPause)
+		ReplayLayout.addWidget(self.ReplayPauseButton)
+
+		ReplayStopButton = pyqt.QPushButton("Abort")
+		ReplayStopButton.clicked.connect(self.ReplayStop)
+		ReplayLayout.addWidget(ReplayStopButton)
+
+		rightLayout.addWidget(pyqt.QLabel("Configuration:"))
 		rightLayout.addWidget(QueryPanel)
 		rightLayout.addWidget(DevicesPanel)
 		rightLayout.addWidget(pyqt.QLabel("Recording:"))
 		rightLayout.addWidget(RecordPanel)
+		rightLayout.addWidget(pyqt.QLabel("Replay:"))
+		rightLayout.addWidget(ReplayPanel)
 
 		# TODO
 		# Record Macro Button (Check if other options are set) (threaded)
@@ -311,8 +331,6 @@ class MainWindow(pyqt.QMainWindow):
 		# do nothing if already running or playing:
 		if(self._ReplayIsRunning or self._RecordingIsRunning):
 			return
-		
-		self._RecordingIsRunning = True
 
 		# check requirements:
 		queryCheck = self._checkQuery()
@@ -334,6 +352,7 @@ class MainWindow(pyqt.QMainWindow):
 		print(eval(self.config.get("devices")))
 		self.Recorder = Listener.EventListener(eval(self.config.get("devices")), self.query)
 
+		self._RecordingIsRunning = True
 		self.setStatus("recording")
 		self.Recorder.start()
 
@@ -353,6 +372,51 @@ class MainWindow(pyqt.QMainWindow):
 			self.refresh_macro_list()
 		
 		self._RecordingIsRunning = False
+
+	def ReplayStart(self):
+		# do nothing if already running or playing:
+		if(self._ReplayIsRunning or self._RecordingIsRunning):
+			return
+		
+		# checks
+		if not len(self.macroList.selectedItems()):
+			self.warningMessage("Please choose a macro first!")
+			return
+
+		filename = self.macroPathInfo.text() + "/" + self.macroList.selectedItems()[0].text()
+		self._ReplayPlayer.readFile(filename)
+
+		self._ReplayIsRunning = True
+		self.setStatus("playing")
+		self._ReplayPlayer.start()
+
+	def ReplayPause(self):
+		# resume if paused:
+		if(self._ReplayIsPaused):
+			self._ReplayIsRunning = True
+			self._ReplayIsPaused = False
+			self._ReplayPlayer.resume()
+			self.setStatus("resume")
+			return
+
+		# do nothing if already paused or not playing:
+		if(not self._ReplayIsRunning or self._ReplayIsPaused):
+			return
+		
+		self._ReplayIsRunning = False
+		self._ReplayIsPaused = True
+		self._ReplayPlayer.pause()
+		self.setStatus("paused")
+
+	def ReplayStop(self):
+		# only do something if its running or paused
+		if(not (self._ReplayIsRunning or self._ReplayIsPaused)):
+			return
+		
+		self._ReplayIsRunning = False
+		self._ReplayIsPaused = False
+		self._ReplayPlayer.stop()
+		self.setStatus("idle")
 
 	def warningMessage(self, message):
 		errorWin = pyqt.QMessageBox()
@@ -374,10 +438,15 @@ class MainWindow(pyqt.QMainWindow):
 		painter.end()
 		return pixmap
 	
+	def _ReplayIsAlive(self):
+		if not self._ReplayPlayer.threads:
+			return False
+		return self._ReplayPlayer.threads[-1].is_alive()
+
 	def _updateTimer(self):
 		if not self._timerRunning:
 			return
-		
+
 		self._timerElapsed = perf_counter() - self._timerStart
 		secs = int(self._timerElapsed)
 		tenthsecs = int((self._timerElapsed-secs)*10)
@@ -385,8 +454,15 @@ class MainWindow(pyqt.QMainWindow):
 		secs = secs%60
 		self.timerLabel.setText(f"{minutes:02d}:{secs:02d}.{tenthsecs}")
 
+		if self._ReplayIsRunning:
+			if not self._ReplayIsAlive():
+				self.ReplayStop()
+
 	def setStatus(self, state:str):
-		"""Available states = ('idle', 'recording', 'playing')"""
+		"""
+		Available states = ('idle', 'recording', 'playing', 'paused', 'resume')
+		-> use 'resume' to correctly restart a timer (shows 'playing' status)
+		"""
 
 		status = state.lower()
 		if status == "recording":
@@ -401,7 +477,21 @@ class MainWindow(pyqt.QMainWindow):
 			self._timerStart = perf_counter()
 			self._timerRunning = True
 			self._timer.start()
-		elif status == "idling":
+		elif status == "paused":
+			self.statusInfoLabel.setText("Paused")
+			self.statusLight.setPixmap(self._getStatusPixmap("yellow"))
+			self._timerRunning = False
+			self._timerStart = perf_counter() - self._timerStart  # save elapsed time for later
+			self._timer.stop()
+			self.ReplayPauseButton.setText("Resume")
+		elif status == "resume":
+			self.statusInfoLabel.setText("Playing...")
+			self.statusLight.setPixmap(self._getStatusPixmap("green"))
+			self._timerStart = perf_counter() - self._timerStart  # offset _timerStart by previous elapsed time
+			self._timerRunning = True
+			self._timer.start()
+			self.ReplayPauseButton.setText("Pause")
+		elif status == "idling" or status == "idle":
 			self.statusInfoLabel.setText("Idling")
 			self.statusLight.setPixmap(self._getStatusPixmap("gray"))
 			self._timerRunning = False
