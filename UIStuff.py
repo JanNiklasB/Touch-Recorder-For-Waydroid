@@ -1,7 +1,7 @@
 import PyQt6.QtWidgets as pyqt
 import PyQt6.QtCore as qtcore
 import PyQt6.QtGui as qtgui
-from time import perf_counter
+from time import perf_counter, sleep
 import os, sys
 import configparser
 import subprocess
@@ -203,6 +203,7 @@ class MainWindow(pyqt.QMainWindow):
 
 		self._ReplayIsRunning = False
 		self._ReplayIsPaused = False
+		self._ReplayIsRequeueing = False
 		self._ReplayTargetTimeStr = ""
 
 		ReplayStartButton = pyqt.QPushButton("Start")
@@ -217,6 +218,39 @@ class MainWindow(pyqt.QMainWindow):
 		ReplayStopButton.clicked.connect(self.ReplayStop)
 		ReplayLayout.addWidget(ReplayStopButton)
 
+		# Loop Options:
+		LoopPanel = pyqt.QWidget()
+		LoopLayout = pyqt.QHBoxLayout(LoopPanel)
+		# globals:
+		self._LoopInfinitly = False
+		self._LoopCounter = 0
+		self._LoopRequeueDelayTime = -1
+
+		LoopInfiniteCheck = pyqt.QCheckBox()
+		LoopInfiniteCheck.stateChanged.connect(self._OnLoopInfiniteCheck)
+		LoopLayout.addWidget(pyqt.QLabel("Repeat until Abort:"))
+		LoopLayout.addWidget(LoopInfiniteCheck)
+
+		self.LoopCountInput = pyqt.QLineEdit()
+		self.LoopCountInput.setFixedWidth(40)
+		self.LoopCountInput.setAlignment(qtcore.Qt.AlignmentFlag.AlignCenter)
+		self.LoopCountInput.setText("1")
+		CountValidator = qtgui.QIntValidator(1, 999)
+		self.LoopCountInput.setValidator(CountValidator)
+		LoopLayout.addWidget(pyqt.QLabel("Count:"))
+		LoopLayout.addWidget(self.LoopCountInput)
+
+		self.LoopDelayInput = pyqt.QLineEdit()
+		self.LoopDelayInput.setFixedWidth(40)
+		self.LoopDelayInput.setAlignment(qtcore.Qt.AlignmentFlag.AlignCenter)
+		self.LoopDelayInput.setText("0.0")
+		DelayValidator = qtgui.QDoubleValidator(0.0, 999.9, 1)
+		DelayValidator.setNotation(qtgui.QDoubleValidator.Notation.StandardNotation)
+		self.LoopDelayInput.setValidator(DelayValidator)
+		LoopLayout.addWidget(pyqt.QLabel("Delay:"))
+		LoopLayout.addWidget(self.LoopDelayInput)
+
+
 		rightLayout.addWidget(pyqt.QLabel("Configuration:"))
 		rightLayout.addWidget(QueryPanel)
 		rightLayout.addWidget(DevicesPanel)
@@ -224,6 +258,9 @@ class MainWindow(pyqt.QMainWindow):
 		rightLayout.addWidget(RecordPanel)
 		rightLayout.addWidget(pyqt.QLabel("Replay:"))
 		rightLayout.addWidget(ReplayPanel)
+		rightLayout.addWidget(pyqt.QLabel("Loop Options:"))
+		rightLayout.addWidget(LoopPanel)
+
 
 		# TODO
 		# Play Macro Field
@@ -274,9 +311,11 @@ class MainWindow(pyqt.QMainWindow):
 		else:
 			return ""
 
+
 	def queryWindow(self):
 		self.query = Listener.extractWindowQuery()
 		self.queryInfo.setText(self.query["desktopFile"])
+
 
 	def chooseDevices(self):
 		popup = pyqt.QDialog(self)
@@ -335,6 +374,7 @@ class MainWindow(pyqt.QMainWindow):
 			self.config.set("devices", str(devices))
 			self.DevicesInfo.setText(str(devices))
 
+
 	def startRecording(self):
 		# do nothing if already running or playing:
 		if(self._ReplayIsRunning or self._RecordingIsRunning):
@@ -381,9 +421,10 @@ class MainWindow(pyqt.QMainWindow):
 		
 		self._RecordingIsRunning = False
 
+
 	def ReplayStart(self):
 		# do nothing if already running or playing:
-		if(self._ReplayIsRunning or self._RecordingIsRunning):
+		if(self._ReplayIsRunning or self._RecordingIsRunning or self._ReplayIsRequeueing):
 			return
 		
 		# checks
@@ -424,14 +465,41 @@ class MainWindow(pyqt.QMainWindow):
 		self.setStatus("paused")
 
 	def ReplayStop(self):
-		# only do something if its running or paused
-		if(not (self._ReplayIsRunning or self._ReplayIsPaused)):
+		# only do something if its running or paused or requeueing
+		if(not (self._ReplayIsRunning or self._ReplayIsPaused or self._ReplayIsRequeueing)):
 			return
 		
 		self._ReplayIsRunning = False
 		self._ReplayIsPaused = False
+		self._ReplayIsRequeueing = False
 		self._ReplayPlayer.stop()
+
 		self.setStatus("idle")
+		self._LoopCounter = 0
+
+	def _ReplayRequeue(self):
+		self._ReplayIsRunning = False
+		self._ReplayIsPaused = False
+		self._ReplayIsRequeueing = False
+		self._ReplayPlayer.stop()
+
+		self._LoopCounter += 1
+		if self._LoopInfinitly:
+			self._ReplayIsRequeueing = True
+			self.setStatus("requeue")
+			self._LoopRequeueDelayTime = perf_counter()
+		elif self.LoopCountInput.text():
+			if self._LoopCounter < int(self.LoopCountInput.text()):
+				self._ReplayIsRequeueing = True
+				self.setStatus("requeue")
+				self._LoopRequeueDelayTime = perf_counter()
+			else:
+				self.setStatus("idle")
+				self._LoopCounter = 0
+
+	def _OnLoopInfiniteCheck(self):
+		self._LoopInfinitly = not self._LoopInfinitly
+
 
 	def warningMessage(self, message):
 		errorWin = pyqt.QMessageBox()
@@ -466,6 +534,12 @@ class MainWindow(pyqt.QMainWindow):
 		return self._ReplayPlayer.threads[-1].is_alive()
 
 	def _updateTimer(self):
+		if self._LoopRequeueDelayTime>=0:
+			if (perf_counter() - self._LoopRequeueDelayTime) >= float(self.LoopDelayInput.text()):
+				self._ReplayIsRequeueing = False
+				self._LoopRequeueDelayTime = -1
+				self.ReplayStart()
+
 		if not self._timerRunning:
 			return
 
@@ -478,12 +552,12 @@ class MainWindow(pyqt.QMainWindow):
 
 		if self._ReplayIsRunning:
 			if not self._ReplayIsAlive():
-				self.ReplayStop()
-		
+				self._ReplayRequeue()
 
+		
 	def setStatus(self, state:str):
 		"""
-		Available states = ('idle', 'recording', 'playing', 'paused', 'resume')
+		Available states = ('idle', 'requeue', 'recording', 'playing', 'paused', 'resume')
 		-> use 'resume' to correctly restart a timer (shows 'playing' status)
 		"""
 
@@ -495,25 +569,59 @@ class MainWindow(pyqt.QMainWindow):
 			self._timerRunning = True
 			self._timer.start()
 		elif status == "playing":
-			self.statusInfoLabel.setText("Playing...")
+			if self._LoopInfinitly:
+				self.statusInfoLabel.setText(f"Playing {self._LoopCounter}/∞")
+			else:
+				self.statusInfoLabel.setText(f"Playing {self._LoopCounter}/{self.LoopCountInput.text() if self.LoopCountInput.text() else 1}")
 			self.statusLight.setPixmap(self._getStatusPixmap("green"))
 			self._timerStart = perf_counter()
 			self._timerRunning = True
 			self._timer.start()
 		elif status == "paused":
-			self.statusInfoLabel.setText("Paused")
+			if self._LoopInfinitly:
+				self.statusInfoLabel.setText(f"Paused {self._LoopCounter}/∞")
+			else:
+				self.statusInfoLabel.setText(f"Paused {self._LoopCounter}/{self.LoopCountInput.text() if self.LoopCountInput.text() else 1}")
 			self.statusLight.setPixmap(self._getStatusPixmap("yellow"))
 			self._timerRunning = False
 			self._timerStart = perf_counter() - self._timerStart  # save elapsed time for later
 			self._timer.stop()
 			self.ReplayPauseButton.setText("Resume")
 		elif status == "resume":
-			self.statusInfoLabel.setText("Playing...")
+			if self._LoopInfinitly:
+				self.statusInfoLabel.setText(f"Playing {self._LoopCounter}/∞")
+			else:
+				self.statusInfoLabel.setText(f"Playing {self._LoopCounter}/{self.LoopCountInput.text() if self.LoopCountInput.text() else 1}")
 			self.statusLight.setPixmap(self._getStatusPixmap("green"))
 			self._timerStart = perf_counter() - self._timerStart  # offset _timerStart by previous elapsed time
 			self._timerRunning = True
 			self._timer.start()
 			self.ReplayPauseButton.setText("Pause")
+		elif status == "requeue":
+			if self._LoopInfinitly:
+				self.statusInfoLabel.setText(f"Requeueing to {self._LoopCounter}/∞")
+			else:
+				if self._LoopCounter < int(self.LoopCountInput.text()):
+					self.statusInfoLabel.setText(f"Requeueing to {self._LoopCounter}/{self.LoopCountInput.text()}")
+
+			self.statusLight.setPixmap(self._getStatusPixmap("yellow"))
+
+			self._timerRunning = False
+			self._timer.stop()
+			self._timerElapsed = 0
+			
+			timerElapsed = float(self.LoopDelayInput.text())
+			secs = int(timerElapsed)
+			tenthsecs = int((timerElapsed-secs)*10)
+			minutes = secs//60
+			secs = secs%60
+			self._ReplayTargetTimeStr =f" / {minutes:02d}:{secs:02d}.{tenthsecs}"
+			self.timerLabel.setText(f"00:00.0{self._ReplayTargetTimeStr}")
+
+			self._timerStart = perf_counter()
+			self._timerRunning = True
+			self._timer.start()
+
 		elif status == "idling" or status == "idle":
 			self.statusInfoLabel.setText("Idling")
 			self.statusLight.setPixmap(self._getStatusPixmap("gray"))
