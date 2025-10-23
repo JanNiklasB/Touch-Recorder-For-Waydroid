@@ -140,13 +140,15 @@ class EventListener:
 			else:
 				self.ListenOnEV_REL = False
 
-		elif event.matches(libevdev.EV_REL.REL_X) and self.ListenOnEV_REL:
-			pos = (self.container[-1]["x"]+event.value, self.container[-1]["y"])
-			self.on_Movement(*pos, time)
+		# # For now disable Movement, since the amount of inputs is to much for adb.
+		
+		# elif event.matches(libevdev.EV_REL.REL_X) and self.ListenOnEV_REL:
+		# 	pos = (self.container[-1]["x"]+event.value, self.container[-1]["y"])
+		# 	self.on_Movement(*pos, time)
 
-		elif event.matches(libevdev.EV_REL.REL_Y) and self.ListenOnEV_REL:
-			pos = (self.container[-1]["x"], self.container[-1]["y"]+event.value)
-			self.on_Movement(*pos, time)
+		# elif event.matches(libevdev.EV_REL.REL_Y) and self.ListenOnEV_REL:
+		# 	pos = (self.container[-1]["x"], self.container[-1]["y"]+event.value)
+		# 	self.on_Movement(*pos, time)
 
 		elif event.matches(libevdev.EV_KEY.KEY_ESC):
 			self.on_ESC(time, event.value)
@@ -163,7 +165,6 @@ class EventListener:
 					"value" : value,
 					"type" : "Touch"
 				})
-				# print(f"Click at {x}, {y}")
 
 	def on_Movement(self, x, y, time):
 		X = int(float(self.query["width"]))
@@ -185,54 +186,3 @@ class EventListener:
 				"value" : 1,
 				"type" : "ESC"
 			})
-
-
-if __name__ == "__main__":
-	config = configparser.ConfigParser()
-	configExists = os.path.exists(CONFIGFILE)
-	if configExists:
-		config.read(CONFIGFILE)
-	else:
-		config["SystemVariables"] = {}
-		config["UserVariables"] = {}
-
-	Devices = []
-	if not "Devices" in config["UserVariables"]:
-		subprocess.run("libinput list-devices | grep -e 'Device' -e 'Kernel'", shell=True)
-		userDeviceInfo = "None"
-		while userDeviceInfo:
-			userDeviceInfo = input("Specify a valid device to add, leave empty if done: ")
-			try:
-				Devices.append(int(userDeviceInfo))
-			except:
-				print("Please only enter Integers!")
-			print(f"Current Devices monitored: {Devices}")
-		
-		question = input("Do you wish to save your devices for next time? y/n: ")
-		
-		if question=="y" or question=="yes":
-			config["UserVariables"]["Devices"] = str(Devices)
-
-	else:
-		Devices = eval(config["UserVariables"]["Devices"])
-
-	WindowQuery = extractWindowQuery()
-	
-	if len(sys.argv)==1:
-		RecordingFile = input("Enter a filename for recording: ")
-	else:
-		RecordingFile = sys.argv[1]
-	input("Press Enter to start recording: ")
-
-	LibevdevDevices = []
-	for i in Devices:
-		LibevdevDevices.append(libevdev.Device(open(f"/dev/input/event{i}")))
-
-	Listener = EventListener(LibevdevDevices, WindowQuery)
-	Listener.run()
-	Inputs = Listener.getData()
-
-	saveInputs(RecordingFile, Inputs)
-
-	with open(CONFIGFILE, "w") as conffile:
-		config.write(conffile)
