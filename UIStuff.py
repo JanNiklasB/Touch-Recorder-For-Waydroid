@@ -115,7 +115,7 @@ class MainWindow(pyqt.QMainWindow):
 		browseButton.clicked.connect(self.browseMacroPath)
 		pathLayout.addWidget(browseButton)
 
-		# Add Available Macros (currently only this Dir)
+		# Add Available Macros
 		self.macroList = pyqt.QListWidget()
 		self.refresh_macro_list()
 
@@ -263,11 +263,6 @@ class MainWindow(pyqt.QMainWindow):
 
 
 		# TODO
-		# Play Macro Field
-		# - loop macro options:
-		# 	-> loop x times
-		# 	-> loop until abort
-		#	-> delay between runs
 		# Fuse Macros Tool -> new ui/popup which should give the followig options:
 		# - Only option for two macros, can then be called again for the new one (by user)
 		# - give two MacroLists (already implemented) and one option field

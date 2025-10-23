@@ -1,13 +1,15 @@
 from time import perf_counter
 import signal
-import os, sys
 import subprocess
 import libevdev
-import configparser
 import threading
 import select
 
-CONFIGFILE = "WaydroidTouchRecorder.ini"
+#get current path
+from pathlib import Path
+PATH = Path(__file__).parent.resolve()
+
+CONFIGFILE = str(PATH) + "/WaydroidTouchRecorder.ini"
 
 # ADB functions
 def TouchDown(x, y) -> str:
@@ -57,7 +59,7 @@ def saveInputs(File, Inputs):
 		f.writelines(Lines)
 
 def getpos()->tuple:
-	posInput = subprocess.run("findCursor.sh", shell=True, capture_output=True)
+	posInput = subprocess.run(f"sh {str(PATH)}/findCursor.sh", shell=True, capture_output=True)
 	posInput = posInput.stdout.decode().split("_")
 	return (int(posInput[1]), int(posInput[2]))
 
