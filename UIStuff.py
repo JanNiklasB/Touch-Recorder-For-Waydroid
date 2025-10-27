@@ -26,7 +26,7 @@ class Config:
 			self.config["SystemVariables"] = {}
 			self.config["UserVariables"] = {}
 
-	def set(self, key, val, Category="UserVariables"):
+	def set(self, key:str, val:str, Category="UserVariables"):
 		if not Category in self.config:
 			self.config[Category] = {}
 		self.config[Category][key] = val
@@ -35,7 +35,7 @@ class Config:
 		with open(CONFIGFILE, "w") as conffile:
 			self.config.write(conffile)
 
-	def get(self, key, Category="UserVariables"):
+	def get(self, key:str, Category="UserVariables"):
 		if(Category==""):
 			for category in self.config.keys():
 				if key in self.config[category]:
@@ -46,11 +46,19 @@ class Config:
 				return self.config[Category][key]
 			else:
 				return ""
+			
+	def setIfNotExist(self, key:str, val:str, Catergory="UserVariables"):
+		if self.get(str(key), Catergory)=="":
+			self.set(str(key), str(val), Catergory)
 
 class MainWindow(pyqt.QMainWindow):
 	def __init__(self):
 		super().__init__()
 		self.config = Config()
+		self.config.setIfNotExist("InputsToTaps", True, "SystemVariables")
+		self.config.setIfNotExist("TimeTolerance", 0.3, "SystemVariables")
+		self.config.setIfNotExist("PixelTolerance", 5, "SystemVariables")
+		self.config.setIfNotExist("MovementCooldown", 0.1, "SystemVariables")
 
 		# setup timer and timer globals:
 		self._timer = qtcore.QTimer(self)
@@ -181,7 +189,7 @@ class MainWindow(pyqt.QMainWindow):
 		RecordLayout = pyqt.QHBoxLayout(RecordPanel)
 		# globals:
 		self._RecordingIsRunning = False
-		self.Recorder = Listener.EventListener([], self.query)
+		self.Recorder = None
 
 		StartRecordButton = pyqt.QPushButton("Record")
 		StartRecordButton.clicked.connect(self.startRecording)
@@ -411,7 +419,14 @@ class MainWindow(pyqt.QMainWindow):
 		filename = self._chooseMacroFilename()
 		# self.warningMessage(f"You entered {self.macroPathInfo.text() + '/' + filename}")
 		if filename:
-			Listener.saveInputs(self.macroPathInfo.text() + "/" + filename, inputs)
+			Listener.saveInputs(
+				self.macroPathInfo.text() + "/" + filename, 
+				inputs,
+				bool(self.config.get("InputsToTaps", "SystemVariables")),
+				float(self.config.get("TimeTolerance", "SystemVariables")),
+				float(self.config.get("PixelTolerance", "SystemVariables")),
+				float(self.config.get("MovementCooldown", "SystemVariables"))
+			)
 			self.refresh_macro_list()
 		
 		self._RecordingIsRunning = False
@@ -625,6 +640,7 @@ class MainWindow(pyqt.QMainWindow):
 			self._timer.stop()
 			self._timerElapsed = 0
 			self.timerLabel.setText("00:00.0")
+			self.ReplayPauseButton.setText("Pause")
 		else:
 			raise KeyError(f"state not found {state}")
 
