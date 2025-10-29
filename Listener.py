@@ -45,7 +45,7 @@ def extractWindowQuery(uuid = "") -> dict:
 		WindowQuery[entries[0]] = entries[1]
 	return WindowQuery
 
-def correctInputs(Inputs, TimeTolerance=0.3, PixelTolerance=10, MovementCooldown=0.1):
+def correctInputs(Inputs, TimeTolerance=0.3, PixelTolerance=20, MovementCooldown=0.1):
 	counter=0
 	newInputs = []
 	# convert to Taps if possible (movement correction later)
@@ -110,7 +110,7 @@ def correctInputs(Inputs, TimeTolerance=0.3, PixelTolerance=10, MovementCooldown
 	
 	return newInputs
 
-def saveInputs(File, UserInputs:list, InputsToTaps=False, TimeTolerance=0.3, PixelTolerance=10, MovementCooldown=0.1):
+def saveInputs(File, UserInputs:list, InputsToTaps=False, TimeTolerance=0.3, PixelTolerance=20, MovementCooldown=0.1):
 	Inputs = UserInputs.copy()
 	if InputsToTaps:
 		Inputs = correctInputs(Inputs, TimeTolerance, PixelTolerance, MovementCooldown)

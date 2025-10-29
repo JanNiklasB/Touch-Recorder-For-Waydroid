@@ -57,7 +57,7 @@ class MainWindow(pyqt.QMainWindow):
 		self.config = Config()
 		self.config.setIfNotExist("InputsToTaps", True, "SystemVariables")
 		self.config.setIfNotExist("TimeTolerance", 0.3, "SystemVariables")
-		self.config.setIfNotExist("PixelTolerance", 5, "SystemVariables")
+		self.config.setIfNotExist("PixelTolerance", 20, "SystemVariables")
 		self.config.setIfNotExist("MovementCooldown", 0.1, "SystemVariables")
 
 		# setup timer and timer globals:
