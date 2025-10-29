@@ -45,7 +45,7 @@ def extractWindowQuery(uuid = "") -> dict:
 		WindowQuery[entries[0]] = entries[1]
 	return WindowQuery
 
-def correctInputs(Inputs, TimeTolerance=0.3, PixelTolerance=5, MovementCooldown=0.1):
+def correctInputs(Inputs, TimeTolerance=0.3, PixelTolerance=10, MovementCooldown=0.1):
 	counter=0
 	newInputs = []
 	# convert to Taps if possible (movement correction later)
@@ -53,8 +53,12 @@ def correctInputs(Inputs, TimeTolerance=0.3, PixelTolerance=5, MovementCooldown=
 		if Inputs[counter]["type"]=="Touch" and Inputs[counter]["value"]==1:
 			Action = []
 			Action.append(Inputs[counter])
+			keypresses = []  # storage if key is pressed during action
 			counter+=1
-			while Inputs[counter]["type"]!="Touch" and Inputs[counter]["value"]!=0:
+			while Inputs[counter]["type"]!="Touch":
+				# store keypress for later (order in file does'nt matter for threaded replay, but still)
+				if Inputs[counter]["type"]=="ESC":
+					keypresses.append(Inputs[counter])
 				Action.append(Inputs[counter])
 				counter+=1
 			Action.append(Inputs[counter])
@@ -63,6 +67,8 @@ def correctInputs(Inputs, TimeTolerance=0.3, PixelTolerance=5, MovementCooldown=
 			# Check if Action is happening inside PixelTolerance pixel window:
 			inRange = True
 			for i in range(1, len(Action)):
+				if Action[i]["type"]=="ESC":
+					continue
 				if abs(Action[0]["x"]-Action[i]["x"])>PixelTolerance and abs(Action[0]["y"]-Action[i]["y"])>PixelTolerance:
 					inRange = False
 					break
@@ -79,7 +85,12 @@ def correctInputs(Inputs, TimeTolerance=0.3, PixelTolerance=5, MovementCooldown=
 					"value" : 0,
 					"type" : "Tap"
 				})
+				# in case tap is added, add keypresses afterwards
+				for key in keypresses:
+					newInputs.append(key)
+			# otherwise store full Action
 			else:
+				# we do not add keypresses here since they are also stored in the action
 				for input in Action:
 					newInputs.append(input)
 		else:
@@ -87,6 +98,7 @@ def correctInputs(Inputs, TimeTolerance=0.3, PixelTolerance=5, MovementCooldown=
 
 		counter+=1
 
+	# reduce movement events
 	counter=0
 	while counter<len(newInputs)-1:
 		# if current and next input are movement, check if next movement is in cool and delete if yes
@@ -95,10 +107,10 @@ def correctInputs(Inputs, TimeTolerance=0.3, PixelTolerance=5, MovementCooldown=
 				del newInputs[counter+1]
 				continue
 		counter+=1
-
+	
 	return newInputs
 
-def saveInputs(File, UserInputs:list, InputsToTaps=False, TimeTolerance=0.3, PixelTolerance=5, MovementCooldown=0.1):
+def saveInputs(File, UserInputs:list, InputsToTaps=False, TimeTolerance=0.3, PixelTolerance=10, MovementCooldown=0.1):
 	Inputs = UserInputs.copy()
 	if InputsToTaps:
 		Inputs = correctInputs(Inputs, TimeTolerance, PixelTolerance, MovementCooldown)
