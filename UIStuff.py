@@ -438,6 +438,11 @@ class MainWindow(pyqt.QMainWindow):
 		if(self._ReplayIsRunning or self._RecordingIsRunning or self._ReplayIsRequeueing):
 			return
 		
+		# in case start is pressed while paused, just resume:
+		if(self._ReplayIsPaused):
+			self.ReplayPause()
+			return
+		
 		# checks
 		if not len(self.macroList.selectedItems()):
 			self.warningMessage("Please choose a macro first!")
