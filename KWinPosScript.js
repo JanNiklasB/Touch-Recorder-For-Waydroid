@@ -4,7 +4,7 @@ function init() {
 
 function sendCursorPos(){
 	callDBus(
-		"org.pythonmacro.Cursor", "/", "local.py.main.CursorReceiver", "Send", workspace.cursorPos.x, workspace.cursorPos.y
+		"org.pythonmacro.Cursor", "/", "", "Send", workspace.cursorPos.x, workspace.cursorPos.y
 	);
 }
 
