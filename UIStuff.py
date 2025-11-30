@@ -52,7 +52,7 @@ class Config:
 			self.set(str(key), str(val), Catergory)
 
 class MainWindow(pyqt.QMainWindow):
-	def __init__(self):
+	def __init__(self, PosListener):
 		super().__init__()
 		self.config = Config()
 		self.config.setIfNotExist("InputsToTaps", True, "SystemVariables")
@@ -190,6 +190,7 @@ class MainWindow(pyqt.QMainWindow):
 		# globals:
 		self._RecordingIsRunning = False
 		self.Recorder = None
+		self.PosListener = PosListener
 
 		StartRecordButton = pyqt.QPushButton("Record")
 		StartRecordButton.clicked.connect(self.startRecording)
@@ -401,7 +402,7 @@ class MainWindow(pyqt.QMainWindow):
 
 		# get fresh recorder
 		print(eval(self.config.get("devices")))
-		self.Recorder = Listener.EventListener(eval(self.config.get("devices")), self.query)
+		self.Recorder = Listener.EventListener(eval(self.config.get("devices")), self.query, self.PosListener)
 
 		self._RecordingIsRunning = True
 		self.setStatus("recording")

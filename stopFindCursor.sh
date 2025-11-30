@@ -1,0 +1,1 @@
+qdbus org.kde.KWin /Scripting/Script$1 stop > /dev/null

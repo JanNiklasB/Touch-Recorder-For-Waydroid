@@ -1,1 +1,11 @@
-console.error("Position: _" + workspace.cursorPos.x + "_" + workspace.cursorPos.y + "_");
+function init() {
+	workspace.cursorPosChanged.connect(sendCursorPos);
+}
+
+function sendCursorPos(){
+	callDBus(
+		"org.pythonmacro.Cursor", "/", "local.py.main.CursorReceiver", "Send", workspace.cursorPos.x, workspace.cursorPos.y
+	);
+}
+
+init();

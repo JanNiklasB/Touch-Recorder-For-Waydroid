@@ -1,5 +1,4 @@
 from time import perf_counter
-import signal
 import subprocess
 import libevdev
 import threading
@@ -46,22 +45,56 @@ def extractWindowQuery(uuid = "") -> dict:
 	return WindowQuery
 
 def correctInputs(Inputs, TimeTolerance=0.3, PixelTolerance=20, MovementCooldown=0.1):
-	counter=0
 	newInputs = []
 	# convert to Taps if possible (movement correction later)
+	counter=0
 	while counter<len(Inputs):
 		if Inputs[counter]["type"]=="Touch" and Inputs[counter]["value"]==1:
 			Action = []
 			Action.append(Inputs[counter])
 			keypresses = []  # storage if key is pressed during action
 			counter+=1
+			if counter>=len(Inputs):
+				break
 			while Inputs[counter]["type"]!="Touch":
 				# store keypress for later (order in file does'nt matter for threaded replay, but still)
 				if Inputs[counter]["type"]=="ESC":
 					keypresses.append(Inputs[counter])
 				Action.append(Inputs[counter])
 				counter+=1
-			Action.append(Inputs[counter])
+				if counter>=len(Inputs):
+					break
+			if counter>=len(Inputs):
+				break
+			
+			# It is assumed that after every DOWN action an UP action follows,
+			# But it is possible that the up action is lost somewhere, so the only thing
+			# we can do, is to replace the last movement action befor the next down with an UP action,
+			# and if no movement action exist, replace it with a tap.
+			# Lonely UP actions come from outside and can be ignored!
+			if Inputs[counter]["value"]==1:  # another DOWN
+				# if Down replace the last MOVEMENT with an UP if any:
+				if Action[-1]["type"]=="Touch":
+					# in case of no movement add tap directly and continue
+					newInputs.append({
+						"x" : Action[0]["x"],
+						"y" : Action[0]["y"],
+						"time" : Action[0]["time"],
+						"value" : 0,
+						"type" : "Tap"
+					})
+					# in case tap is added, add keypresses afterwards
+					for key in keypresses:
+						newInputs.append(key)
+					counter+=1
+					continue
+				else:
+					Action[-1]["type"] = "Touch"
+					Action[-1]["value"] = 0
+					counter-=1  # go one back since at counter is know the next down and we increase it by one at the end
+			else:
+				# if Up append Up
+				Action.append(Inputs[counter])
 
 			# now decide what to do with this action dependend on threshold:
 			# Check if Action is happening inside PixelTolerance pixel window:
@@ -93,6 +126,10 @@ def correctInputs(Inputs, TimeTolerance=0.3, PixelTolerance=20, MovementCooldown
 				# we do not add keypresses here since they are also stored in the action
 				for input in Action:
 					newInputs.append(input)
+
+		# in case we find a single up action ignore it:
+		elif Inputs[counter]["type"]=="Touch" and Inputs[counter]["value"]==0:
+			pass
 		else:
 			newInputs.append(Inputs[counter])
 
@@ -101,13 +138,13 @@ def correctInputs(Inputs, TimeTolerance=0.3, PixelTolerance=20, MovementCooldown
 	# reduce movement events
 	counter=0
 	while counter<len(newInputs)-1:
-		# if current and next input are movement, check if next movement is in cool and delete if yes
+		# if current and next input are movement, check if next movement is in cooldown and delete if yes
 		if newInputs[counter]["type"]=="Movement" and newInputs[counter+1]["type"]=="Movement":
 			if (newInputs[counter+1]["time"]-newInputs[counter]["time"])<MovementCooldown:
 				del newInputs[counter+1]
 				continue
 		counter+=1
-	
+
 	return newInputs
 
 def saveInputs(File, UserInputs:list, InputsToTaps=False, TimeTolerance=0.3, PixelTolerance=20, MovementCooldown=0.1):
@@ -132,13 +169,8 @@ def saveInputs(File, UserInputs:list, InputsToTaps=False, TimeTolerance=0.3, Pix
 	with open(File, "w") as f:
 		f.writelines(Lines)
 
-def getpos()->tuple:
-	posInput = subprocess.run(f"sh {str(PATH)}/findCursor.sh", shell=True, capture_output=True)
-	posInput = posInput.stdout.decode().split("_")
-	return (int(posInput[1]), int(posInput[2]))
-
 class EventListener:
-	def __init__(self, Devices, query):
+	def __init__(self, Devices, query, PosListener):
 		self.query = query
 		self.Devices = []
 		self.Threads = []
@@ -152,17 +184,35 @@ class EventListener:
 		self.container = []
 		self.StopSignal = True
 		self.ListenOnEV_REL = False
+		self.pos = (0,0)
+
+		# setup position listener:
+		PosListener.receiver.cursorPosChanged.connect(self._setCursorPos)
+
+		self.KWinScriptNumber = 0
+
+	def _setCursorPos(self, x, y):
+		print(x, y)
+		self.pos = (x, y)
 
 	def signal_handler(self, sig, frame):
 		self.StopSignal = True
 
 	def start(self):
 		self.StopSignal = False
+
+		# start listener KWin script:
+		Output = subprocess.run(f"sh {str(PATH)}/startFindCursor.sh", shell=True, capture_output=True)
+		self.KWinScriptNumber = int(Output.stdout.decode())
+
 		for thread in self.Threads:
 			thread.start()
 
 	def stop(self):
 		self.StopSignal = True
+
+		# stop listener KWin script:
+		subprocess.run(f"sh {str(PATH)}/stopFindCursor.sh {self.KWinScriptNumber}", shell=True)
 
 		# wait on thread to finish
 		for thread in self.Threads:
@@ -170,17 +220,6 @@ class EventListener:
 
 		for device in self.Devices:
 			device.fd.close()
-
-	# runs until disrupted
-	def run(self):
-
-		old_handler = signal.signal(signal.SIGINT, self.signal_handler)
-		print("Press CTRL + C to stop recording, do not resize window while recording!")
-		self.Thread.start()
-
-		self.Thread.join()
-		signal.signal(signal.SIGINT, old_handler)
-		self.StopSignal = False
 
 	def getData(self):
 		return self.container
@@ -206,11 +245,11 @@ class EventListener:
 				break
 			except Exception as e:
 				print(f"Warning: An exception was encountered in EventListener.threadFunc: {str(e)}")
+				e.with_traceback(e.__traceback__.tb_lineno)
 
 	def on_event(self, event:libevdev.InputEvent, time):
 		if event.matches(libevdev.EV_KEY.BTN_LEFT):
-			pos = getpos()
-			self.on_BTN_LEFT(*pos, time, event.value)
+			self.on_BTN_LEFT(time, event.value)
 			if(event.value==1):
 				self.ListenOnEV_REL = True
 			else:
@@ -219,19 +258,20 @@ class EventListener:
 		# For now disable Movement, since the amount of inputs is to much for adb.
 		
 		elif event.matches(libevdev.EV_REL.REL_X) and self.ListenOnEV_REL:
-			pos = (self.container[-1]["x"]+event.value, self.container[-1]["y"])
-			self.on_Movement(*pos, time)
+			self.pos = (self.container[-1]["x"]+event.value, self.container[-1]["y"])
+			self.on_Movement(time)
 
 		elif event.matches(libevdev.EV_REL.REL_Y) and self.ListenOnEV_REL:
-			pos = (self.container[-1]["x"], self.container[-1]["y"]+event.value)
-			self.on_Movement(*pos, time)
+			self.pos = (self.container[-1]["x"], self.container[-1]["y"]+event.value)
+			self.on_Movement(time)
 
 		elif event.matches(libevdev.EV_KEY.KEY_ESC):
 			self.on_ESC(time, event.value)
 
-	def on_BTN_LEFT(self, x, y, time, value):
+	def on_BTN_LEFT(self, time, value):
 		X = int(float(self.query["x"]))
 		Y = int(float(self.query["y"]))
+		x, y = self.pos
 		if x>=X and x<=(X+int(float(self.query["width"]))):
 			if y>=Y and y<=(Y+int(float(self.query["height"]))):
 				self.container.append({
@@ -242,9 +282,10 @@ class EventListener:
 					"type" : "Touch"
 				})
 
-	def on_Movement(self, x, y, time):
+	def on_Movement(self, time):
 		X = int(float(self.query["width"]))
 		Y = int(float(self.query["height"]))
+		x, y = self.pos
 		self.container.append({
 			"x" : min(x,X) if (x>0) else 0,
 			"y" : min(y,Y) if (y>0) else 0,
