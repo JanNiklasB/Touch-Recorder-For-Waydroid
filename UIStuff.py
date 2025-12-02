@@ -134,6 +134,10 @@ class MainWindow(pyqt.QMainWindow):
 		OpenMacroFileButton.clicked.connect(self.openSelectedMacro)
 		FileOperationsLayout.addWidget(OpenMacroFileButton)
 
+		RenameMacroFileButton = pyqt.QPushButton("Rename")
+		RenameMacroFileButton.clicked.connect(self.renameSelectedMacro)
+		FileOperationsLayout.addWidget(RenameMacroFileButton)
+
 		DeleteMacroFileButton = pyqt.QPushButton("Delete")
 		DeleteMacroFileButton.clicked.connect(self.deleteSelectedMacro)
 		FileOperationsLayout.addWidget(DeleteMacroFileButton)
@@ -295,13 +299,27 @@ class MainWindow(pyqt.QMainWindow):
 		path = self.config.get("macropath")
 		if path=="":
 			path = "."
-		for file in os.listdir(path):
+		for i, file in enumerate(os.listdir(path)):
 			if file.endswith('.txt'):
 				self.macroList.addItem(file)
+				item = self.macroList.item(i)
+				item.setFlags(item.flags() | qtcore.Qt.ItemFlag.ItemIsEditable)
 
 	def openSelectedMacro(self):
 		if self.macroList.selectedItems():
 			subprocess.Popen(["xdg-open", self.macroPathInfo.text() + "/" + self.macroList.selectedItems()[0].text()])
+
+	def renameSelectedMacro(self):
+		if self.macroList.selectedItems():
+			filename = self._chooseMacroFilename()
+			if filename:
+				newPath = self.macroPathInfo.text() + "/" + filename
+				oldPath = self.macroPathInfo.text() + "/" + self.macroList.selectedItems()[0].text()
+				os.rename(
+					oldPath,
+					newPath
+				)
+				self.refresh_macro_list()
 
 	def deleteSelectedMacro(self):
 		if self.macroList.selectedItems():
@@ -726,8 +744,10 @@ class MainWindow(pyqt.QMainWindow):
 
 
 if __name__ == "__main__":
+	import DBusListener
 	app = pyqt.QApplication(sys.argv)
-	window = MainWindow()
+	PosListener = DBusListener.Listener()
+	window = MainWindow(PosListener)
 	window.show()
 	signal = app.exec()
 	window.config.save()
