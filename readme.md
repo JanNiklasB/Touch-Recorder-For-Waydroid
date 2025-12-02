@@ -7,9 +7,10 @@ It utilized `qdbus` to get the cursor positions, so it won't work only any DE th
 ## Notes:
 - The tool is equipped with a UI to easily record and replay macros.
 - You are asked to give the tool sudo access for the Waydroid shell, but it will also work with `adb`, just decline
-  > `adb` might introduce some input lag, but should work fine
-- Currently no movement is recorded, only presses, this is because the amount of inputs that are generated from replaying accurate movement is causing massive delays
-  > I only needed the `DOWN` and `UP` events in my case, if you know a way to send movement to Waydroid without input delay, then please contribute
+  > `adb` might introduce some input lag, but should work fine.
+  > You can choose to not be asked again, in that case `adb` is used in the future, make sure to install it!
+- Movement inputs are reduced ATM and only recognized during pressed down mouse (to recognize touch movement events). The Cooldown for this behavior can be adjusted to `WaydroidTouchRecorder.ini` where 0 means all movement event are played during pressed mouse button.
+  > There might be a better way to send movement inputs then directly over the Waydroid shell or `adb` shell, if found nothing speaks against full cursor movement support. 
 
 ## Advanced Configuration:
 The tool creates the `WaydroidTouchRecorder.ini` file in its install directory after its first launch. You can modify this file to change some options, but only modify the file while the tool is not running, otherwise the settings might not be applied correctly and are overridden after closing.

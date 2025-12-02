@@ -711,34 +711,43 @@ class MainWindow(pyqt.QMainWindow):
 			return ""
 		
 	def _askForSudo(self):
-		popup = pyqt.QDialog(self)
-		popup.setWindowTitle("Password Prompt")
-		popup.setMinimumSize(400, 150)
+		if self.config.get("AskForSudo", "UserVariables") == "" or self.config.get("AskForSudo", "UserVariables") == "True":
+			popup = pyqt.QDialog(self)
+			popup.setWindowTitle("Password Prompt")
+			popup.setMinimumSize(400, 200)
 
-		layout = pyqt.QVBoxLayout(popup)
-		layout.setAlignment(qtcore.Qt.AlignmentFlag.AlignCenter)
-		layout.addWidget(pyqt.QLabel("This tool needs sudo to start a waydroid shell.\nLeave empty or cancel to use adb shell instead:"))
+			layout = pyqt.QVBoxLayout(popup)
+			layout.setAlignment(qtcore.Qt.AlignmentFlag.AlignCenter)
+			layout.addWidget(pyqt.QLabel("This tool needs sudo to start a waydroid shell.\nLeave empty or cancel to use adb shell instead:"))
 
-		inputLayout = pyqt.QHBoxLayout()
-		
-		PasswordInput = pyqt.QLineEdit()
-		PasswordInput.setEchoMode(pyqt.QLineEdit.EchoMode.Password)
-		PasswordInput.setPlaceholderText("Enter Password")
-		inputLayout.addWidget(PasswordInput)
-		
-		layout.addLayout(inputLayout)
+			inputLayout = pyqt.QHBoxLayout()
+			
+			PasswordInput = pyqt.QLineEdit()
+			PasswordInput.setEchoMode(pyqt.QLineEdit.EchoMode.Password)
+			PasswordInput.setPlaceholderText("Enter Password")
+			inputLayout.addWidget(PasswordInput)
+			
+			layout.addLayout(inputLayout)
 
-		buttonBox = pyqt.QDialogButtonBox(
-			pyqt.QDialogButtonBox.StandardButton.Ok |
-			pyqt.QDialogButtonBox.StandardButton.Cancel
-		)
+			checkBox = pyqt.QCheckBox("Do not ask me again (adb is installed)!")
+			layout.addWidget(checkBox)
 
-		buttonBox.accepted.connect(popup.accept)
-		buttonBox.rejected.connect(popup.reject)
-		layout.addWidget(buttonBox)
+			buttonBox = pyqt.QDialogButtonBox(
+				pyqt.QDialogButtonBox.StandardButton.Ok |
+				pyqt.QDialogButtonBox.StandardButton.Cancel
+			)
 
-		if popup.exec() == pyqt.QDialog.DialogCode.Accepted:
-			return PasswordInput.text()
+			buttonBox.accepted.connect(popup.accept)
+			buttonBox.rejected.connect(popup.reject)
+			layout.addWidget(buttonBox)
+
+			if popup.exec() == pyqt.QDialog.DialogCode.Accepted:
+				output = PasswordInput.text()
+			else:
+				output = ""
+			self.config.set("AskForSudo", str(not checkBox.isChecked()), "UserVariables")
+
+			return output
 		else:
 			return ""
 
