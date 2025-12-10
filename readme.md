@@ -30,6 +30,9 @@ The tool creates the `WaydroidTouchRecorder.ini` file in its install directory a
 ## GUI Example:
 ![Example GUI](./GUIExample.png?raw=true "GUI")
 
+## Small GUI Example:
+![Example Small GUI](./GUIExampleSmall.png?raw=true "SmallGUI")
+
 ## Motivation
 I programmed this tool to work with games like FGO.
 I changed from Windows to GNU/Linux and was used to the macro behavior in emulators like LDPlayer,

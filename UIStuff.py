@@ -83,8 +83,8 @@ class MainWindow(pyqt.QMainWindow):
 		
 
 		# create status bar
-		statusBar = pyqt.QStatusBar()
-		self.setStatusBar(statusBar)
+		self.StatusBar = pyqt.QStatusBar()
+		self.setStatusBar(self.StatusBar)
 
 		# set status info text
 		statusInfoLabelPrefix = pyqt.QLabel("Status: ")
@@ -96,10 +96,10 @@ class MainWindow(pyqt.QMainWindow):
 		# set timer label
 		self.timerLabel = pyqt.QLabel("00:00.0")
 
-		statusBar.addWidget(statusInfoLabelPrefix)
-		statusBar.addWidget(self.statusInfoLabel)
-		statusBar.addPermanentWidget(self.statusLight)
-		statusBar.addPermanentWidget(self.timerLabel)
+		self.StatusBar.addWidget(statusInfoLabelPrefix)
+		self.StatusBar.addWidget(self.statusInfoLabel)
+		self.StatusBar.addPermanentWidget(self.statusLight)
+		self.StatusBar.addPermanentWidget(self.timerLabel)
 
 
 
@@ -235,14 +235,12 @@ class MainWindow(pyqt.QMainWindow):
 		LoopPanel = pyqt.QWidget()
 		LoopLayout = pyqt.QHBoxLayout(LoopPanel)
 		# globals:
-		self._LoopInfinitly = False
 		self._LoopCounter = 0
 		self._LoopRequeueDelayTime = -1
 
-		LoopInfiniteCheck = pyqt.QCheckBox()
-		LoopInfiniteCheck.stateChanged.connect(self._OnLoopInfiniteCheck)
+		self.LoopInfiniteCheck = pyqt.QCheckBox()
 		LoopLayout.addWidget(pyqt.QLabel("Repeat until Abort:"))
-		LoopLayout.addWidget(LoopInfiniteCheck)
+		LoopLayout.addWidget(self.LoopInfiniteCheck)
 
 		self.LoopCountInput = pyqt.QLineEdit()
 		self.LoopCountInput.setFixedWidth(40)
@@ -263,6 +261,13 @@ class MainWindow(pyqt.QMainWindow):
 		LoopLayout.addWidget(pyqt.QLabel("Delay:"))
 		LoopLayout.addWidget(self.LoopDelayInput)
 
+		# Tools:
+
+		SmallPlayerPanel = pyqt.QWidget()
+		SmallPlayerLayout = pyqt.QHBoxLayout(SmallPlayerPanel)
+		SmallPlayerButton = pyqt.QPushButton("Small Player")
+		SmallPlayerButton.clicked.connect(self.openSmallPlayer)
+		SmallPlayerLayout.addWidget(SmallPlayerButton)
 
 		rightLayout.addWidget(pyqt.QLabel("Configuration:"))
 		rightLayout.addWidget(QueryPanel)
@@ -273,6 +278,8 @@ class MainWindow(pyqt.QMainWindow):
 		rightLayout.addWidget(ReplayPanel)
 		rightLayout.addWidget(pyqt.QLabel("Loop Options:"))
 		rightLayout.addWidget(LoopPanel)
+		rightLayout.addWidget(pyqt.QLabel("Tools:"))
+		rightLayout.addWidget(SmallPlayerPanel)
 
 
 		# TODO
@@ -284,6 +291,7 @@ class MainWindow(pyqt.QMainWindow):
 		# Add panels to global layout
 		layout.addWidget(leftPanel)
 		layout.addWidget(rightPanel)
+
 
 	def browseMacroPath(self):
 		dialog = pyqt.QFileDialog()
@@ -518,7 +526,7 @@ class MainWindow(pyqt.QMainWindow):
 		self._ReplayPlayer.stop()
 
 		self._LoopCounter += 1
-		if self._LoopInfinitly:
+		if self.LoopInfiniteCheck.isChecked():
 			self._ReplayIsRequeueing = True
 			self.setStatus("requeue")
 			self._LoopRequeueDelayTime = perf_counter()
@@ -531,8 +539,92 @@ class MainWindow(pyqt.QMainWindow):
 				self.setStatus("idle")
 				self._LoopCounter = 0
 
-	def _OnLoopInfiniteCheck(self):
-		self._LoopInfinitly = not self._LoopInfinitly
+
+	def openSmallPlayer(self):
+		# checks
+		if not len(self.macroList.selectedItems()):
+			self.warningMessage("Please choose a macro first!")
+			return
+
+		self.SmallPlayer = pyqt.QMainWindow()
+		self.SmallPlayer.setWindowTitle(self.macroList.selectedItems()[0].text())
+		self.SmallPlayer.setMinimumSize(200, 100)
+		self.SmallPlayer.setWindowFlags(
+			self.SmallPlayer.windowFlags() | qtcore.Qt.WindowType.WindowStaysOnTopHint
+		)
+
+		# Replay Macro
+		mainWidget = pyqt.QWidget()
+		self.SmallPlayer.setCentralWidget(mainWidget)
+
+		self.SmallPlayer.closeEvent = self.closeFloatingWindow
+
+		layout = pyqt.QVBoxLayout()
+		mainWidget.setLayout(layout)
+
+		ReplayPanel = pyqt.QWidget()
+		ReplayLayout = pyqt.QHBoxLayout(ReplayPanel)
+
+		ReplayStartButton = pyqt.QPushButton("Start")
+		ReplayStartButton.clicked.connect(self.ReplayStart)
+		ReplayLayout.addWidget(ReplayStartButton)
+
+		self.ReplayPauseButton = pyqt.QPushButton("Pause")
+		self.ReplayPauseButton.clicked.connect(self.ReplayPause)
+		ReplayLayout.addWidget(self.ReplayPauseButton)
+
+		ReplayStopButton = pyqt.QPushButton("Abort")
+		ReplayStopButton.clicked.connect(self.ReplayStop)
+		ReplayLayout.addWidget(ReplayStopButton)
+
+
+		# Loop Options:
+		LoopPanel = pyqt.QWidget()
+		LoopLayout = pyqt.QHBoxLayout(LoopPanel)
+	
+		LoopInfiniteCheck = pyqt.QCheckBox()
+		LoopInfiniteCheck.setChecked(self.LoopInfiniteCheck.isChecked())
+		LoopInfiniteCheck.stateChanged.connect(lambda state: self.LoopInfiniteCheck.setChecked(state!=0))
+		LoopLayout.addWidget(pyqt.QLabel("Repeat until Abort:"))
+		LoopLayout.addWidget(LoopInfiniteCheck)
+
+
+		LoopCountInput = pyqt.QLineEdit()
+		LoopCountInput.setFixedWidth(self.LoopCountInput.width())
+		LoopCountInput.setAlignment(self.LoopCountInput.alignment())
+		LoopCountInput.setText(self.LoopCountInput.text())
+		LoopCountInput.setValidator(self.LoopCountInput.validator())
+		LoopCountInput.textChanged.connect(lambda text: self.LoopCountInput.setText(text) if self.LoopCountInput!=text else None)
+		LoopLayout.addWidget(pyqt.QLabel("Count:"))
+		LoopLayout.addWidget(LoopCountInput)
+
+		LoopDelayInput = pyqt.QLineEdit()
+		LoopDelayInput.setFixedWidth(self.LoopDelayInput.width())
+		LoopDelayInput.setAlignment(self.LoopDelayInput.alignment())
+		LoopDelayInput.setText(self.LoopDelayInput.text())
+		LoopDelayInput.setValidator(self.LoopDelayInput.validator())
+		LoopDelayInput.textChanged.connect(lambda text: self.LoopDelayInput.setText(text) if self.LoopDelayInput!=text else None)
+		LoopLayout.addWidget(pyqt.QLabel("Delay:"))
+		LoopLayout.addWidget(LoopDelayInput)
+
+		# add to layout
+		# layout.addWidget(pyqt.QLabel("Replay:"))
+		layout.addWidget(ReplayPanel)
+		# layout.addWidget(pyqt.QLabel("Loop Options:"))
+		layout.addWidget(LoopPanel)
+
+		self.SmallPlayer.setStatusBar(self.StatusBar)
+
+		self.SmallPlayer.show()
+		self.hide()
+
+	def closeFloatingWindow(self, event=None):
+		if hasattr(self, "SmallPlayer"):
+			self.SmallPlayer.close()
+		self.setStatusBar(self.StatusBar)
+		self.show()
+		if event:
+			event.accept()
 
 
 	def warningMessage(self, message):
@@ -603,7 +695,7 @@ class MainWindow(pyqt.QMainWindow):
 			self._timerRunning = True
 			self._timer.start()
 		elif status == "playing":
-			if self._LoopInfinitly:
+			if self.LoopInfiniteCheck.isChecked():
 				self.statusInfoLabel.setText(f"Playing {self._LoopCounter}/∞")
 			else:
 				self.statusInfoLabel.setText(f"Playing {self._LoopCounter}/{self.LoopCountInput.text() if self.LoopCountInput.text() else 1}")
@@ -612,7 +704,7 @@ class MainWindow(pyqt.QMainWindow):
 			self._timerRunning = True
 			self._timer.start()
 		elif status == "paused":
-			if self._LoopInfinitly:
+			if self.LoopInfiniteCheck.isChecked():
 				self.statusInfoLabel.setText(f"Paused {self._LoopCounter}/∞")
 			else:
 				self.statusInfoLabel.setText(f"Paused {self._LoopCounter}/{self.LoopCountInput.text() if self.LoopCountInput.text() else 1}")
@@ -622,7 +714,7 @@ class MainWindow(pyqt.QMainWindow):
 			self._timer.stop()
 			self.ReplayPauseButton.setText("Resume")
 		elif status == "resume":
-			if self._LoopInfinitly:
+			if self.LoopInfiniteCheck.isChecked():
 				self.statusInfoLabel.setText(f"Playing {self._LoopCounter}/∞")
 			else:
 				self.statusInfoLabel.setText(f"Playing {self._LoopCounter}/{self.LoopCountInput.text() if self.LoopCountInput.text() else 1}")
@@ -632,7 +724,7 @@ class MainWindow(pyqt.QMainWindow):
 			self._timer.start()
 			self.ReplayPauseButton.setText("Pause")
 		elif status == "requeue":
-			if self._LoopInfinitly:
+			if self.LoopInfiniteCheck.isChecked():
 				self.statusInfoLabel.setText(f"Requeueing to {self._LoopCounter}/∞")
 			else:
 				if self._LoopCounter < int(self.LoopCountInput.text()):
