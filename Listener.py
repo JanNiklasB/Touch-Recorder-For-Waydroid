@@ -152,6 +152,9 @@ def saveInputs(File, UserInputs:list, InputsToTaps=False, TimeTolerance=0.3, Pix
 	if InputsToTaps:
 		Inputs = correctInputs(Inputs, TimeTolerance, PixelTolerance, MovementCooldown)
 
+	if not Inputs:
+		raise RuntimeError("No inputs could be recorded, check if the correct window was chosen!\n")
+
 	Lines = ["Time,Command\n"]
 	for input in Inputs:
 		if input["type"]=="Touch":

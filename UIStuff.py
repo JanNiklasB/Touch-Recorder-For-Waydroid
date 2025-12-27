@@ -446,14 +446,17 @@ class MainWindow(pyqt.QMainWindow):
 		filename = self._chooseMacroFilename()
 		# self.warningMessage(f"You entered {self.macroPathInfo.text() + '/' + filename}")
 		if filename:
-			Listener.saveInputs(
-				self.macroPathInfo.text() + "/" + filename, 
-				inputs,
-				bool(self.config.get("InputsToTaps", "SystemVariables")),
-				float(self.config.get("TimeTolerance", "SystemVariables")),
-				float(self.config.get("PixelTolerance", "SystemVariables")),
-				float(self.config.get("MovementCooldown", "SystemVariables"))
-			)
+			try:
+				Listener.saveInputs(
+					self.macroPathInfo.text() + "/" + filename, 
+					inputs,
+					bool(self.config.get("InputsToTaps", "SystemVariables")),
+					float(self.config.get("TimeTolerance", "SystemVariables")),
+					float(self.config.get("PixelTolerance", "SystemVariables")),
+					float(self.config.get("MovementCooldown", "SystemVariables"))
+				)
+			except RuntimeError as e:
+				self.warningMessage("No inputs where detected, check if the correct window is chosen!")
 			self.refresh_macro_list()
 		
 		self._RecordingIsRunning = False
@@ -549,9 +552,7 @@ class MainWindow(pyqt.QMainWindow):
 		self.SmallPlayer = pyqt.QMainWindow()
 		self.SmallPlayer.setWindowTitle(self.macroList.selectedItems()[0].text())
 		self.SmallPlayer.setMinimumSize(200, 100)
-		self.SmallPlayer.setWindowFlags(
-			self.SmallPlayer.windowFlags() | qtcore.Qt.WindowType.WindowStaysOnTopHint
-		)
+		self.SmallPlayer.setWindowFlag(qtcore.Qt.WindowType.WindowStaysOnTopHint, True)
 
 		# Replay Macro
 		mainWidget = pyqt.QWidget()
