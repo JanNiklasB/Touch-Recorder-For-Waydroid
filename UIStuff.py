@@ -319,7 +319,7 @@ class MainWindow(pyqt.QMainWindow):
 
 	def renameSelectedMacro(self):
 		if self.macroList.selectedItems():
-			filename = self._chooseMacroFilename()
+			filename = self._chooseMacroFilename(self.macroList.selectedItems()[0].text())
 			if filename:
 				newPath = self.macroPathInfo.text() + "/" + filename
 				oldPath = self.macroPathInfo.text() + "/" + self.macroList.selectedItems()[0].text()
@@ -771,7 +771,7 @@ class MainWindow(pyqt.QMainWindow):
 		
 		return 0
 
-	def _chooseMacroFilename(self):
+	def _chooseMacroFilename(self, oldName=""):
 		popup = pyqt.QDialog(self)
 		popup.setWindowTitle("Choose a Macro Filename")
 		popup.setMinimumSize(400, 150)
@@ -783,6 +783,8 @@ class MainWindow(pyqt.QMainWindow):
 		inputLayout = pyqt.QHBoxLayout()
 		filenameInput = pyqt.QLineEdit()
 		filenameInput.setPlaceholderText("Endings: None, *.txt")
+		if oldName:
+			filenameInput.setText(oldName)
 		inputLayout.addWidget(filenameInput)
 		layout.addLayout(inputLayout)
 
